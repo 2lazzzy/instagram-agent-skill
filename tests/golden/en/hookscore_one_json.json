@@ -1,0 +1,5 @@
+{
+ "code": 0,
+ "stdout": "{\n  \"hook\": \"Hey guys, today I wanted to talk about content strategy\",\n  \"checks\": {\n    \"LENGTH\": {\n      \"score\": 100.0,\n      \"detail\": \"10 words, 55 chars, ~3.6s spoken (want 5-12 words)\"\n    },\n    \"SPECIFICITY\": {\n      \"score\": 15.0,\n      \"detail\": \"0 concrete marker(s) - no number, no name, nothing checkable\"\n    },\n    \"STAKES\": {\n      \"score\": 20.0,\n      \"detail\": \"0 tension marker(s) - nothing is at stake in this line\"\n    },\n    \"FRONTLOAD\": {\n      \"score\": 0.0,\n      \"detail\": \"no payload word anywhere in the line; weak opener \\\"hey\\\"\"\n    },\n    \"ADDRESS\": {\n      \"score\": 70.0,\n      \"detail\": \"first person, no viewer named\"\n    }\n  },\n  \"weakest\": \"FRONTLOAD\",\n  \"flags\": [\n    \"Greeting. Nobody came to the feed to be greeted.\"\n  ],\n  \"score\": 9.6,\n  \"verdict\": \"WEAK\"\n}\n",
+ "stderr": ""
+}

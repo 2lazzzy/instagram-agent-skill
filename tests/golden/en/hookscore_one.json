@@ -1,0 +1,5 @@
+{
+ "code": 0,
+ "stdout": "\nHOOK SCORE\n==============================================================\n  \"I lost $18,000 because of one missing contract.\"\n\n  LENGTH        ######################## 100.0\n                8 words, 47 chars, ~2.9s spoken (want 5-12 words)\n  SPECIFICITY   ##################......  75.0\n                1 concrete marker(s): $18,000\n  STAKES        ######################## 100.0\n                2 tension marker(s): lost, a price\n  FRONTLOAD     ######################## 100.0\n                payload at word 2\n  ADDRESS       #################.......  70.0\n                first person, no viewer named\n--------------------------------------------------------------\n  HOOK SCORE    ####################....  81.4   STRONG\n\n",
+ "stderr": ""
+}

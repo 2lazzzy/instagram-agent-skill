@@ -1,0 +1,5 @@
+{
+ "code": 1,
+ "stdout": "\nAI DETECTION PANEL\n==============================================================\n  BURSTINESS    ######################## 100.0\n                variation 0.92 across 10 sentences (want 0.55+)\n  SPECIFICITY   ###############.........  60.8\n                3 concrete markers, 3.8 per 100 words (want 4+)\n  SLOP DENSITY  ........................   0.0\n                19 stock terms, 24.4 per 100 words (crucial, cutting-edge, delve, delve into, ...)\n  FINGERPRINT   ################........  67.1\n                0 invisible, 1 em dash, 0 curly quote, 0 ellipsis, 0 hard space\n  VOICE         #############...........  55.6\n                6.4 contractions, 5.1 personal pronouns per 100 words, 9 structural tell(s) [not-just, hashtag-wall, in-this-video, emoji-bullets]\n--------------------------------------------------------------\n  HUMAN SCORE   ########................  34.0   FLAGGED\n\n  Weakest signal: SLOP DENSITY. Fix that first.\n\n",
+ "stderr": ""
+}
