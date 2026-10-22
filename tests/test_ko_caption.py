@@ -131,5 +131,20 @@ class Misc(unittest.TestCase):
             self.assertNotIn(english, out)
 
 
+class KeywordAskForms(unittest.TestCase):
+    """The comment-keyword ask in the forms people actually write (2026-10-22 comparison report)."""
+
+    def test_conditional_and_polite_forms(self):
+        for text in ("댓글에 '회의록' 남기면 보내드려요", "댓글에 '회의록' 남겨 주시면 보내드려요",
+                     "댓글로 회의록 적으면 링크 드려요", "댓글에 '프롬프트'라고 달면 DM 드려요"):
+            a, c = lint(text)
+            self.assertEqual(c["ONE ASK"]["status"], "PASS", text)
+            self.assertIn("댓글", c["ONE ASK"]["detail"], text)
+
+    def test_with_save_it_is_two_asks(self):
+        _, c = lint("저장해 두세요\n댓글에 '회의록' 남기면 보내드려요")
+        self.assertEqual(c["ONE ASK"]["status"], "WARN")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -130,5 +130,26 @@ class Detection(unittest.TestCase):
             self.assertTrue(entry["suggest"])
 
 
+class AddedAfterComparison(unittest.TestCase):
+    """2026-10-22 comparison report: hype and translationese the first lexicon missed, and repeated urging."""
+
+    def test_new_terms_are_flagged_not_rewritten(self):
+        text = "역대급 변화입니다. 무조건 써야 합니다. 자동화함으로써 시간이 줄어듭니다. 이는 매우 중요한 포인트입니다. 모르면 손해입니다."
+        out, rep = humanize(text)
+        found = {s["find"] for s in rep["suggestions"]}
+        self.assertTrue({"역대급", "무조건", "함으로써", "이는 매우 중요한", "모르면 손해"} <= found, found)
+        self.assertEqual(out.strip(), text)
+
+    def test_urging_repeated(self):
+        _, rep = humanize("지금 바로 시작해 보세요! 지금 바로 저장하세요! 지금 바로 공유하세요!")
+        self.assertIn("push-repeat", {s["id"] for s in rep["structures"]})
+
+    def test_ordinary_uses_stay_clean(self):
+        _, rep = humanize("무조건 반사처럼 손이 갔습니다. 지금 바로 옆자리에 앉아 있어요. 연습함 덕분에 익숙해졌습니다.")
+        found = {s["find"] for s in rep["suggestions"]}
+        self.assertFalse(found & {"무조건", "함으로써"}, found)
+        self.assertNotIn("push-repeat", {s["id"] for s in rep["structures"]})
+
+
 if __name__ == "__main__":
     unittest.main()

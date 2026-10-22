@@ -27,6 +27,10 @@ CAPTIONS = {
                  "회의록 5분 정리.\n\n저장해 두세요. 팔로우하고 다음 편도 보세요."),
     "clean": ("Meeting notes in 5 minutes with Claude.\n\nComment NOTES and I will send the prompt.",
               "Claude로 회의록 5분 정리.\n\n댓글에 '회의록' 남겨 주세요."),
+    # 2026-10-22 comparison report: '남기면' (the most common Korean form) was not read as an ask,
+    # so the same caption got WARN in English and PASS in Korean
+    "save_and_keyword": ("Notes in five minutes.\n\nSave this for your next meeting\nComment NOTES and I'll send you the prompt",
+                         "회의록 5분 정리.\n\n저장해 두고 다음 회의 때 써 보세요\n댓글에 '회의록' 남기면 프롬프트 보내드려요"),
 }
 
 SCRIPTS = (

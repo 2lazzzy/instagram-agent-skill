@@ -153,6 +153,12 @@ def computed_structures(text, lex):
         flags.append({"id": "cta-repeat", "name": f"요청 반복 ({kinds}종류 {ctas}번)", "count": ctas,
                       "fix": "요청은 하나만. 여러 개를 부탁하면 하나도 안 합니다."})
 
+    # The same urging phrase over and over ('지금 바로 ~하세요' three times).
+    push = len(re.findall(r"지금\s*바로|당장|서둘러", text))
+    if push >= 2:
+        flags.append({"id": "push-repeat", "name": f"재촉 문구 반복 ('지금 바로' 류 {push}번)", "count": push,
+                      "fix": "재촉은 한 번도 많습니다. 하나만 남기고, 무엇부터 하면 되는지 첫 단계를 쓰세요."})
+
     # Exclamation marks on most lines.
     bang = sum(1 for s in sents if s.rstrip().endswith("!"))
     if bang >= 3 and bang / max(len(sents), 1) >= 0.4:
