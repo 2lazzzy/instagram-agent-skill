@@ -69,6 +69,7 @@ class Tokens(unittest.TestCase):
         self.assertEqual(ig_ko.strip_josa("Claude한테"), "Claude")
         self.assertEqual(ig_ko.strip_josa("5분이면"), "5분")
         self.assertEqual(ig_ko.strip_josa("나는"), "나는")       # too short to strip
+        self.assertEqual(ig_ko.strip_josa("손으로"), "손으로")   # never a broken stem
 
     def test_content_words_ignore_particles(self):
         a = set(ig_ko.content_words("회의록 정리에 걸리던 1시간"))

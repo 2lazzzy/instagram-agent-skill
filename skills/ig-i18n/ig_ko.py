@@ -214,7 +214,8 @@ def strip_josa(token):
             stem = token[:-len(j)]
             if len(HANGUL_RE.findall(stem)) >= 2 or re.search(r"[A-Za-z0-9]", stem):
                 return stem
-    return token
+            return token            # the longest particle left too little: keep the
+    return token                    # word whole ('손으로' must not become '손으')
 
 
 def content_words(text):
