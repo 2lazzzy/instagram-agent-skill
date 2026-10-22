@@ -52,6 +52,33 @@ reels and say "write my voice.md from these". Every skill reads that file. It
 matters more here than on other platforms, because you have to say the words
 out loud.
 
+## Languages: English and Korean
+
+English (en-US) is the default and works exactly as it always did. Korean
+(ko-KR) is a second, separate locale, not a translation: the hook formulas,
+the hook scorer, the speech timing, the caption linter and the humanizer each
+have Korean rules of their own. 한국어 안내는 [README.ko.md](README.ko.md).
+
+```
+/ig-reel <idea>                     # your default: profile, then the language you wrote in
+/ig-reel --locale ko-KR <idea>      # a Korean Reel
+/ig-caption --locale en-US <text>   # an English caption, whatever your default is
+```
+
+Claude Code passes everything after a skill name to the skill as text, so
+`--locale` is read by the skill itself and then handed to every script it runs.
+The order, first match wins: `--locale`, the `IG_LOCALE` environment variable,
+`"locale"` in `~/.claude/instagram/config.json`, a `Locale:` line in
+`voice.md`, the language of the request or text, then en-US. With none of
+those set, English text stays English. The scripts take the same flag:
+
+```bash
+python3 hookscore.py hooks_ko.txt --locale ko-KR
+python3 beats.py script_ko.txt --locale ko-KR --calibrate 27.4 --save
+```
+
+How it is built, and how to add a language: [docs/i18n.md](docs/i18n.md).
+
 ## The thirteen
 
 | command | what it does |
@@ -323,8 +350,18 @@ skills/ig-human/humanize.py        the three cleaning passes
 skills/ig-human/detect.py          the five-check panel
 skills/ig-viral/swipe.py           outlier ranking and formula classification
 skills/ig-profile/rubric.json      the 100-point profile score
+skills/ig-i18n/                    shared locale code: locale selection, display width,
+                                   Korean numbers, syllable timing, concreteness
+skills/*/locales/ko-KR/            Korean resources: hook formulas, scorer lexicon,
+                                   caption rules, humanizer lexicon, a guide per skill
 templates/voice.md                 your voice profile. Fill this in first.
+templates/voice.ko-KR.md           the same, in Korean
+templates/config.example.json      locale, platform numbers, humanizer allowlist
+tests/                             python3 -m unittest discover -s tests -t tests
 ```
+
+The English output of all five tools is frozen in `tests/golden/en/` from
+v1.0 and the test suite fails if any of it changes.
 
 ## Credit
 
