@@ -34,6 +34,9 @@ the words out loud. A line you would never say is not a draft, it is a retake.
 - **Voiceover or to-camera:**
 - **Pace:** (words per minute, if you have timed yourself reading a script.
   `beats.py --wpm` uses this. Most people are between 150 and 200.)
+- **Locale:** (optional. en-US or ko-KR. Every skill writes in this language
+  unless a request says `--locale` otherwise. Leave it as is to keep English.
+  Korean speakers: `templates/voice.ko-KR.md` is the same file in Korean.)
 
 ## My positions
 

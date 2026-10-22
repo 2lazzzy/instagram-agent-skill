@@ -7,6 +7,7 @@ description: >-
   user says humanize, "does this sound like AI", "remove the em dashes",
   "de-slop this", "this sounds like ChatGPT", or before any caption, script,
   comment, reply or DM is shown to the user.
+  Also in Korean (ko-KR): "AI 티 나는지 봐 줘", "자연스럽게 다듬어 줘", or /ig-human --locale ko-KR.
 ---
 
 # ig-human
@@ -26,6 +27,32 @@ replacements, 18 invisible character classes, 11 typographic substitutions and
 vocabulary that only shows up in captions and voiceovers. It is meant to be
 edited. If the user has a word they always use that the lexicon strips, take it
 out of the file.
+
+## Language (en-US, ko-KR)
+
+This skill writes English by default and Korean on request. Decide the locale
+once, before anything else, in this order:
+
+1. `--locale <code>` in the arguments, e.g. `/ig-human --locale ko-KR ...`.
+   Remove the flag from the request before using the rest of it. `ko`, `ko-KR`,
+   `en` and `en-US` are all accepted.
+2. The `IG_LOCALE` environment variable, if the session can see it.
+3. `"locale"` in `~/.claude/instagram/config.json`, then a `Locale:` line in
+   `~/.claude/instagram/voice.md`.
+4. The language the user wrote the request in.
+5. en-US.
+
+For en-US, follow this file exactly as written; nothing about English changed.
+For ko-KR, read `../ig-i18n/style-ko-KR.md` and `locales/ko-KR/guide.md` (both
+relative to this folder) before writing, and where they differ from the English
+examples below, they win. Every line of output is Korean, including labels and
+the receipt. Never paste an English example from this file into Korean output,
+and never invent a number or a first-person experience to fill one in.
+
+Run every tool in this folder with the locale you chose: `python3 humanize.py draft.txt --locale ko-KR --report`, `python3 detect.py draft.txt --locale ko-KR`. Without the flag the tools follow the same order (IG_LOCALE, profile, the text's own language, en-US), but pass it anyway.
+
+When this skill hands text to another one (`/ig-human`, `/ig-caption`,
+`/ig-reel`), pass the same `--locale` along.
 
 ## Why this matters more on Instagram than it looks
 

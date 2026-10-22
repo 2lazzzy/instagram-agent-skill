@@ -256,6 +256,15 @@ def ending(sentence, size=2):
     return "".join(syl[-size:]) if syl else ""
 
 
+def final_word(sentence):
+    """The last eojeol of a sentence without punctuation: '끝납니다',
+    '있습니다'. Comparing whole final words, not the last two syllables, is
+    what keeps formal Korean (합니다체) from looking monotonous: every
+    sentence ends in -니다, but natural ones end in different verbs."""
+    toks = eojeol(re.sub(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]", " ", sentence))
+    return toks[-1] if toks else ""
+
+
 # --------------------------------------------------------------------------
 # concreteness
 

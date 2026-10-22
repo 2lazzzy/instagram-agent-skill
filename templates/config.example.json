@@ -1,0 +1,8 @@
+{
+  "locale": "ko-KR",
+  "platform": {
+    "caption_limit": 2200,
+    "hashtag_limit": 5
+  },
+  "humanize_allow": []
+}

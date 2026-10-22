@@ -6,6 +6,7 @@ description: >-
   Instagram insights or past posts and asks "what's working", "why did this
   flop", "read my analytics", "audit my content", or wants to know what to do
   more of.
+  Also in Korean (ko-KR): "내 인사이트 분석해 줘", "왜 이건 안 됐지", or /ig-audit --locale ko-KR.
 ---
 
 # ig-audit
@@ -13,6 +14,30 @@ description: >-
 The only honest source of what works for an account is that account. Every
 rule in every Instagram guide, including the ones in this pack, is a prior.
 The user's own last 30 posts are the evidence.
+
+## Language (en-US, ko-KR)
+
+This skill writes English by default and Korean on request. Decide the locale
+once, before anything else, in this order:
+
+1. `--locale <code>` in the arguments, e.g. `/ig-audit --locale ko-KR ...`.
+   Remove the flag from the request before using the rest of it. `ko`, `ko-KR`,
+   `en` and `en-US` are all accepted.
+2. The `IG_LOCALE` environment variable, if the session can see it.
+3. `"locale"` in `~/.claude/instagram/config.json`, then a `Locale:` line in
+   `~/.claude/instagram/voice.md`.
+4. The language the user wrote the request in.
+5. en-US.
+
+For en-US, follow this file exactly as written; nothing about English changed.
+For ko-KR, read `../ig-i18n/style-ko-KR.md` and `locales/ko-KR/guide.md` (both
+relative to this folder) before writing, and where they differ from the English
+examples below, they win. Every line of output is Korean, including labels and
+the receipt. Never paste an English example from this file into Korean output,
+and never invent a number or a first-person experience to fill one in.
+
+When this skill hands text to another one (`/ig-human`, `/ig-caption`,
+`/ig-reel`), pass the same `--locale` along.
 
 ## Input
 
