@@ -28,13 +28,33 @@ Usage
   python3 hookscore.py --hook "I lost $18,000 on one missing contract."
   pbpaste | python3 hookscore.py -
   python3 hookscore.py hooks.txt --json
+  python3 hookscore.py hooks_ko.txt --locale ko-KR
+
+Locales
+  en-US is the panel described above, unchanged. ko-KR runs the same five
+  checks rebuilt for Korean (syllables instead of words, Korean numbers and
+  units, verb-final word order, dropped subjects); its lexicon lives in
+  locales/ko-KR/hookscore.json. Without --locale the tool uses IG_LOCALE, then
+  the profile in ~/.claude/instagram, then the language of the text, then
+  en-US. The Korean thresholds mirror the English intent and have not been
+  validated against Korean performance data: a heuristic, not a forecast.
 """
 
 import argparse
 import json
+import os
 import re
 import statistics
 import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "ig-i18n"))
+try:                                     # shared locale code; optional for en-US
+    import ig_locale
+    import ig_ko
+    import ig_text
+except ImportError:                      # ig-reel copied without ig-i18n
+    ig_locale = ig_ko = ig_text = None
 
 WORD_RE = re.compile(r"[A-Za-z0-9$%'’-]+")
 NUMBER_RE = re.compile(
@@ -213,7 +233,9 @@ def check_address(text):
 CHECKS = ["LENGTH", "SPECIFICITY", "STAKES", "FRONTLOAD", "ADDRESS"]
 
 
-def run(text):
+def run(text, locale="en-US"):
+    if locale == "ko-KR":
+        return run_ko(text)
     results = {
         "LENGTH": check_length(text),
         "SPECIFICITY": check_specificity(text),
@@ -230,6 +252,193 @@ def run(text):
     verdict = "STRONG" if overall >= 70 and min(scores) >= 55 and not flags else (
         "OK" if overall >= 50 else "WEAK")
     return results, overall, verdict, flags
+
+# --------------------------------------------------------------------------
+# ko-KR. Same five checks, same weighting and verdict rules as English, with
+# Korean measurements underneath. See locales/ko-KR/hookscore.json.
+
+LABELS_KO = {"LENGTH": "길이", "SPECIFICITY": "구체성", "STAKES": "긴장감",
+             "FRONTLOAD": "앞배치", "ADDRESS": "대상"}
+VERDICT_KO = {"STRONG": "강함", "OK": "보통", "WEAK": "약함"}
+KIND_KO = {"number": "숫자", "money": "금액", "time": "시간", "percent": "비율",
+           "count": "개수", "name": "이름"}
+_ko_lex = None
+
+
+def ko_lexicon():
+    global _ko_lex
+    if _ko_lex is None:
+        if ig_ko is None:
+            raise SystemExit("ko-KR needs the shared skills/ig-i18n folder next to ig-reel.")
+        _ko_lex = ig_locale.load_json(os.path.join(HERE, "locales", "ko-KR", "hookscore.json"))
+        for item in _ko_lex["stakes"]:
+            item["re"] = re.compile(item["pattern"], re.IGNORECASE)
+        for item in _ko_lex["dealbreakers"]:
+            item["re"] = re.compile(item["pattern"], re.IGNORECASE)
+        a = _ko_lex["address"]
+        _ko_lex["address_re"] = {k: re.compile(v, re.IGNORECASE | re.MULTILINE) for k, v in a.items()}
+    return _ko_lex
+
+
+def ko_rate():
+    _, spm, _ = ig_locale.speech_rate("ko-KR")
+    return spm
+
+
+def check_length_ko(text):
+    """한 번에 말할 수 있는 길이. 단어 수가 아니라 실제로 말하는 음절 수로 잽니다."""
+    cfg = ko_lexicon()["length"]
+    syl, _ = ig_ko.spoken_syllables(text)
+    secs = ig_ko.speech_seconds(text, ko_rate())
+    width = ig_text.display_width(text.strip())
+    lo, hi = cfg["ideal_min"], cfg["ideal_max"]
+    if lo <= syl <= hi:
+        score = 100.0
+    elif syl < lo:
+        score = clamp(100 - (lo - syl) * cfg["short_penalty"])
+    else:
+        score = clamp(100 - (syl - hi) * cfg["long_penalty"])
+    if width > cfg["screen_width"]:          # 큰 화면 텍스트 두 줄을 넘김
+        score -= cfg["screen_penalty"]
+    return clamp(score), f"{syl}음절, 화면 폭 {width}, 말하면 약 {secs:.1f}초 (권장 {lo}~{hi}음절)"
+
+
+def check_specificity_ko(text):
+    """추상적인 말 세 개보다 구체적인 것 하나. 숫자, 금액, 시간, 이름."""
+    found = ig_ko.concrete(text)
+    hits = len(found)
+    score = 15.0 if hits == 0 else clamp(45 + hits * 30)
+    shown = ", ".join(f"{s}({KIND_KO[k]})" for k, s in found[:3])
+    return score, (f"구체 표현 {hits}개" + (f": {shown}" if shown else
+                   ": 숫자도 이름도 없어 확인할 수 있는 게 없음"))
+
+
+def _stake_hits(text):
+    hits = []
+    for item in ko_lexicon()["stakes"]:
+        if item["re"].search(text):
+            hits.append(item["label"])
+    if any(k == "money" for k, _ in ig_ko.concrete(text)):
+        hits.append("가격")
+    return sorted(set(hits))
+
+
+def check_stakes_ko(text):
+    """잃을 수 있는 것, 부정, 대가. 한국어는 어미가 변하므로 어간으로 찾습니다."""
+    markers = _stake_hits(text)
+    n = len(markers)
+    score = {0: 20.0, 1: 70.0}.get(n, 100.0)
+    return clamp(score), (f"긴장 표현 {n}개" + (f": {', '.join(markers[:4])}" if markers else
+                                              ": 이 문장에는 걸린 게 없음"))
+
+
+def check_frontload_ko(text):
+    """핵심이 앞쪽 어절에 있는지. 서술어와 부정은 문법상 끝에 오므로 세지 않습니다."""
+    lex = ko_lexicon()
+    cfg = lex["frontload"]
+    tokens = [(m.start(), m.end()) for m in re.finditer(r"\S+", text)]
+    if not tokens:
+        return 0.0, "비어 있음"
+    head = text.strip()
+    penalty, hit_opener = 0, None
+    for weak in lex["weak_openers"]:
+        w = weak.strip(" ,")
+        # the opener itself, optionally with a particle ("오늘은", "요즘은"), then a break
+        if re.match(re.escape(w) + r"(?:은|는|도|에|에는)?(?=[\s,.!?~]|$)", head):
+            penalty, hit_opener = cfg["opener_penalty"], w
+            break
+    starts = [a for _, _, a in ig_ko.concrete_spans(text)]
+    for item in lex["stakes"]:
+        if item["front"]:
+            m = item["re"].search(text)
+            if m:
+                starts.append(m.start())
+    payload = None
+    if starts:
+        first = min(starts)
+        for i, (a, b) in enumerate(tokens):
+            if a <= first < b or first < a:
+                payload = i
+                break
+    if payload is None:
+        base, where = 30.0, "앞으로 끌어올 핵심어(숫자, 이름, 손해)가 없음"
+    elif payload <= cfg["best_index"]:
+        base, where = 100.0, f"핵심어가 {payload + 1}번째 어절"
+    elif payload <= cfg["ok_index"]:
+        base, where = 70.0, f"핵심어가 {payload + 1}번째 어절, 더 앞으로 당길 수 있음"
+    else:
+        base, where = 40.0, f"핵심어가 {payload + 1}번째 어절, 너무 늦음"
+    detail = where + (f"; 약한 시작 \"{hit_opener}\"" if hit_opener else "")
+    return clamp(base - penalty), detail
+
+
+def check_address_ko(text):
+    """한 사람에게 하는 말인지. 한국어는 '당신'을 자주 생략하니 존댓말 명령과
+    시청자에게 묻는 어미도 대상으로 칩니다."""
+    a = ko_lexicon()["address_re"]
+    if a["second_person"].search(text) or a["viewer_question"].search(text):
+        return 100.0, "시청자에게 직접 말함"
+    sents = re.split(r"(?<=[.!?])\s+|\n", text.strip())
+    if any(a["imperative"].search(s.strip()) for s in sents if s.strip()):
+        return 90.0, "권유나 명령 어미(~세요, ~하자)"
+    if a["first_person"].search(text):
+        return 70.0, "1인칭, 시청자는 등장하지 않음"
+    return 35.0, "3인칭, 화면 앞에 아무도 없음"
+
+
+def run_ko(text):
+    results = {
+        "LENGTH": check_length_ko(text),
+        "SPECIFICITY": check_specificity_ko(text),
+        "STAKES": check_stakes_ko(text),
+        "FRONTLOAD": check_frontload_ko(text),
+        "ADDRESS": check_address_ko(text),
+    }
+    hits = [d for d in ko_lexicon()["dealbreakers"] if d["re"].search(text)]
+    flags = [d["message"] for d in hits]
+    scores = [results[c][0] for c in CHECKS]
+    overall = statistics.mean(scores) * 0.6 + min(scores) * 0.4 - sum(d["penalty"] for d in hits)
+    overall = clamp(overall)
+    verdict = "STRONG" if overall >= 70 and min(scores) >= 55 and not flags else (
+        "OK" if overall >= 50 else "WEAK")
+    return results, overall, verdict, flags
+
+
+def render_one_ko(text, results, overall, verdict, flags, out=sys.stdout):
+    pad = ig_text.pad_width
+    print("\n훅 점수  (텍스트 휴리스틱, 조회수나 바이럴 확률이 아님)", file=out)
+    print("=" * 62, file=out)
+    print(f"  \"{text.strip()}\"\n", file=out)
+    for name in CHECKS:
+        score, detail = results[name]
+        print(f"  {pad(LABELS_KO[name], 13)} {bar(score)} {score:5.1f}", file=out)
+        print(f"  {'':<13} {detail}", file=out)
+    print("-" * 62, file=out)
+    print(f"  {pad('훅 점수', 13)} {bar(overall)} {overall:5.1f}   {VERDICT_KO[verdict]} ({verdict})",
+          file=out)
+    for f in flags:
+        print(f"\n  치명적 문제  {f}", file=out)
+    if verdict != "STRONG":
+        weakest = min(CHECKS, key=lambda c: results[c][0])
+        print(f"\n  가장 약한 항목: {LABELS_KO[weakest]}. 이것부터 고치고 다시 돌리세요.", file=out)
+    print("", file=out)
+
+
+def render_table_ko(rows, out=sys.stdout):
+    print("\n훅 순위  (텍스트 휴리스틱, 조회수나 바이럴 확률이 아님)\n" + "=" * 78, file=out)
+    for i, r in enumerate(rows, 1):
+        mark = "->" if i == 1 else "  "
+        hook = r["hook"] if ig_text.display_width(r["hook"]) <= 60 else \
+            ig_text.cut_width(r["hook"], 57) + "..."
+        print(f"{mark} {r['score']:5.1f} {ig_text.pad_width(VERDICT_KO[r['verdict']], 5)} {hook}",
+              file=out)
+        print(f"        가장 약한 항목: {LABELS_KO[r['weakest']]} "
+              f"({r['checks'][r['weakest']]['score']:.0f})", file=out)
+        for f in r["flags"]:
+            print(f"        치명적 문제: {f}", file=out)
+    print("\n1위로 찍으세요. 1위가 50점 미만이면 아직 훅이 없는 겁니다.\n"
+          "이 점수는 약한 훅을 걸러 내는 용도입니다. 어떤 훅이 뜰지는 얼굴, 편집, 소리,\n"
+          "노출 대상이 정하고, 그건 리텐션 그래프로 확인하세요.\n", file=out)
 
 
 def bar(score, width=24):
@@ -268,11 +477,26 @@ def render_table(rows, out=sys.stdout):
           file=out)
 
 
+def resolve_locale(cli, text):
+    """--locale, IG_LOCALE, profile, the text's language, en-US. See ig_locale."""
+    if ig_locale is None:
+        if cli and cli.lower() not in ("en", "en-us", "en_us"):
+            print("--locale needs the shared skills/ig-i18n folder next to ig-reel.",
+                  file=sys.stderr)
+            sys.exit(2)
+        return "en-US"
+    return ig_locale.resolve_or_exit(cli, text).locale
+
+
 def main():
     ap = argparse.ArgumentParser(description="Score a Reel hook on five properties.")
     ap.add_argument("input", nargs="?", default="-", help="file with one hook per line, or -")
     ap.add_argument("--hook", help="score a single hook given on the command line")
     ap.add_argument("--json", action="store_true")
+    if ig_locale:
+        ig_locale.add_argument(ap)
+    else:
+        ap.add_argument("--locale", default=None)
     args = ap.parse_args()
 
     if args.hook:
@@ -284,9 +508,11 @@ def main():
         print("nothing to score", file=sys.stderr)
         sys.exit(2)
 
+    locale = resolve_locale(args.locale, "\n".join(lines))
+
     payload = []
     for line in lines:
-        results, overall, verdict, flags = run(line)
+        results, overall, verdict, flags = run(line, locale)
         payload.append({
             "hook": line,
             "checks": {k: {"score": round(v[0], 1), "detail": v[1]} for k, v in results.items()},
@@ -294,6 +520,7 @@ def main():
             "flags": flags,
             "score": round(overall, 1),
             "verdict": verdict,
+            "locale": locale,
         })
 
     if args.json:
@@ -301,10 +528,12 @@ def main():
         return
 
     if len(payload) == 1:
-        results, overall, verdict, flags = run(lines[0])
-        render_one(lines[0], results, overall, verdict, flags)
+        results, overall, verdict, flags = run(lines[0], locale)
+        (render_one_ko if locale == "ko-KR" else render_one)(lines[0], results, overall,
+                                                            verdict, flags)
     else:
-        render_table(sorted(payload, key=lambda r: -r["score"]))
+        (render_table_ko if locale == "ko-KR" else render_table)(
+            sorted(payload, key=lambda r: -r["score"]))
 
     sys.exit(0 if max(p["score"] for p in payload) >= 70 else 1)
 

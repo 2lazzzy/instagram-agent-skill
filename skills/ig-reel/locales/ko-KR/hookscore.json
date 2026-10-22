@@ -1,0 +1,69 @@
+{
+  "version": "1.0",
+  "locale": "ko-KR",
+  "note": "Korean lexicon for hookscore.py. Same five checks as English, rebuilt for Korean instead of translated. LENGTH counts spoken syllables, not words. STAKES matches word stems because Korean conjugates ('잃었', '잃은'). FRONTLOAD only counts payloads that can move to the front of a Korean sentence (numbers, names, nouns of loss): negation sits at the end of every Korean sentence by grammar, so it counts for STAKES but never against FRONTLOAD. ADDRESS accepts polite imperatives and questions to the viewer, because Korean drops 'you' far more often than English. None of the thresholds have been fitted to Korean performance data; they mirror the English panel's intent. The score is a heuristic, not a view or virality prediction.",
+  "length": {
+    "ideal_min": 10,
+    "ideal_max": 24,
+    "short_penalty": 8,
+    "long_penalty": 5.5,
+    "screen_width": 60,
+    "screen_penalty": 12
+  },
+  "frontload": {"best_index": 1, "ok_index": 3, "opener_penalty": 30},
+  "weak_openers": [
+    "안녕하세요", "안녕", "여러분", "오늘은", "오늘 영상", "이번 영상", "이번에는", "자,", "자 ", "음", "어,", "그래서", "일단", "사실", "솔직히", "혹시", "다들", "요즘", "제가 오늘", "저는 오늘", "한번", "지금부터", "기본적으로", "그냥", "이 영상", "이번 시간"
+  ],
+  "stakes": [
+    {"label": "실수", "pattern": "실수", "front": true},
+    {"label": "손해", "pattern": "손해|손실", "front": true},
+    {"label": "잃다", "pattern": "잃(?:었|은|는|을|어|고)", "front": false},
+    {"label": "날리다", "pattern": "날(?:렸|린|려|리고|아갔)", "front": false},
+    {"label": "망하다", "pattern": "망(?:했|한|함|하|쳤|친|가)", "front": false},
+    {"label": "실패", "pattern": "실패", "front": true},
+    {"label": "그만", "pattern": "그만", "front": true},
+    {"label": "하지 마", "pattern": "[가-힣]지\\s*마(?:세요|요|라|십시오|시고)", "front": false},
+    {"label": "절대", "pattern": "절대", "front": true},
+    {"label": "아무도", "pattern": "아무도|누구도", "front": true},
+    {"label": "모르다", "pattern": "몰랐|모르(?:면|는|고)", "front": false},
+    {"label": "틀리다", "pattern": "틀렸|틀린|틀리", "front": false},
+    {"label": "잘못", "pattern": "잘못", "front": true},
+    {"label": "삭제", "pattern": "삭제|지웠|지운", "front": false},
+    {"label": "해고", "pattern": "해고|잘렸", "front": true},
+    {"label": "퇴사", "pattern": "퇴사|그만뒀", "front": true},
+    {"label": "무료", "pattern": "무료|공짜", "front": true},
+    {"label": "유료", "pattern": "유료", "front": true},
+    {"label": "낭비", "pattern": "낭비|버리는|버렸|헛수고", "front": true},
+    {"label": "문제", "pattern": "문제", "front": false},
+    {"label": "위험", "pattern": "위험|경고", "front": true},
+    {"label": "후회", "pattern": "후회", "front": true},
+    {"label": "비밀", "pattern": "비밀|숨겨진|숨은", "front": true},
+    {"label": "진짜 이유", "pattern": "진짜\\s*이유|진실", "front": true},
+    {"label": "대신", "pattern": "대신", "front": false},
+    {"label": "없이", "pattern": "없이|없어도|필요\\s*없", "front": false},
+    {"label": "아직도", "pattern": "아직도", "front": true},
+    {"label": "이미", "pattern": "이미", "front": false},
+    {"label": "하나만", "pattern": "딱\\s*하나|하나만|오직", "front": true},
+    {"label": "하지만", "pattern": "하지만|그런데|근데", "front": false},
+    {"label": "전에", "pattern": "기\\s*전에", "front": false},
+    {"label": "못", "pattern": "(?<![가-힣])못(?=\\s|[가-힣])", "front": false},
+    {"label": "안", "pattern": "(?<![가-힣])안\\s", "front": false},
+    {"label": "않다", "pattern": "않", "front": false},
+    {"label": "vs", "pattern": "(?<![A-Za-z])vs\\.?(?![A-Za-z])", "front": false},
+    {"label": "오히려", "pattern": "오히려", "front": true}
+  ],
+  "address": {
+    "second_person": "(?<![가-힣])(?:당신|여러분|너|너도|너는|네가|니가)(?![가-힣])",
+    "viewer_question": "(?:세요|셨나요|시나요|나요|까요|죠|셨어요|세요)\\s*\\?",
+    "imperative": "(?:세요|십시오|하자|합시다|해\\s*봐|해봐|보세요|마세요|두세요|주세요|가세요|쓰세요)\\s*[.!]?\\s*$",
+    "first_person": "(?<![가-힣])(?:저는|저도|제가|저희|나는|내가|나도|우리|제|저|나|내)(?=\\s|$|[,.!?])"
+  },
+  "dealbreakers": [
+    {"id": "stop-scroll", "pattern": "^\\s*(?:스크롤\\s*(?:멈춰|멈추|내리지|넘기지)|넘기지\\s*마|잠깐만요?\\s*[!,.]?\\s)", "message": "'스크롤 멈추세요'로 시작합니다. 관심을 달라고 하는 순간, 아직 관심을 못 얻었다는 게 드러납니다.", "penalty": 15},
+    {"id": "preamble", "pattern": "(?:이번|오늘)\\s*(?:영상|릴스|시간|콘텐츠)에서는?|(?:알려|소개해|보여)\\s*드리(?:겠습니다|려고\\s*합니다|도록\\s*하겠습니다)|에\\s*대해\\s*(?:알아보겠습니다|알아볼게요|이야기해\\s*보겠습니다|말씀드리겠습니다)", "message": "영상 예고('오늘 영상에서는', '알려 드리겠습니다'). 지우고 결과부터 시작하세요.", "penalty": 15},
+    {"id": "greeting", "pattern": "^\\s*(?:안녕하세요|안녕|여러분\\s*안녕|반갑습니다|하이)", "message": "인사로 시작합니다. 피드에서 인사받으러 온 사람은 없습니다.", "penalty": 15},
+    {"id": "hashtag", "pattern": "(?:^|\\s)#[^\\s#]+", "message": "훅에 해시태그가 있습니다. 해시태그는 캡션 맨 아래 자리입니다.", "penalty": 15},
+    {"id": "emoji", "pattern": "[\\U0001F300-\\U0001FAFF\\u2600-\\u27BF]", "message": "훅에 이모지가 있습니다. 훅 크기 화면 텍스트에는 글자나 이모지 중 하나만 들어갑니다.", "penalty": 15},
+    {"id": "hype", "pattern": "충격|경악|역대급|(?<!을 )(?<!를 )(?<!에 )(?:미쳤|미친\\s)|레전드|무조건|100%\\s*보장|인생이?\\s*바뀌|모르면\\s*손해|이거\\s*실화|소름", "message": "과장 표현('충격', '역대급', '무조건' 류). 클릭은 늘 수 있어도 신뢰가 깎이고, 같은 말을 쓰는 계정이 너무 많습니다. 구체적인 숫자나 장면으로 바꾸세요.", "penalty": 10}
+  ]
+}

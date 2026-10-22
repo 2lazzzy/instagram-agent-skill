@@ -1,0 +1,25 @@
+{
+  "version": "1.0",
+  "note": "Locales the pack knows about. To add one: add an entry here, add skills/<skill>/locales/<code>/ resources for the tools that need them, and a locales/<code>.md guide for each skill. en-US keeps its original files where they always were (hooks.json, slop.json), so nothing about English moved.",
+  "default": "en-US",
+  "locales": {
+    "en-US": {
+      "name": "English (US)",
+      "native": "English",
+      "aliases": ["en", "en-us", "en_us", "english", "us"],
+      "script": "latin",
+      "speech": {"unit": "wpm", "rate": 165}
+    },
+    "ko-KR": {
+      "name": "Korean",
+      "native": "한국어",
+      "aliases": ["ko", "ko-kr", "ko_kr", "kr", "korean", "한국어", "한글"],
+      "script": "hangul",
+      "speech": {"unit": "spm", "rate": 330, "rate_note": "Estimated articulation rate in syllables per minute, pauses added separately. Not measured on this user. Calibrate with: beats.py script.txt --locale ko-KR --calibrate SECONDS"}
+    }
+  },
+  "detect": {
+    "note": "Auto-detection runs only when nothing explicit was set. It looks at the share of Hangul syllables among all letters.",
+    "hangul_share_for_ko": 0.3
+  }
+}
