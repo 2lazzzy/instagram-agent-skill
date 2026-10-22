@@ -1,0 +1,116 @@
+{
+  "version": "1.0",
+  "locale": "ko-KR",
+  "note": "Korean rules for caption.py. Platform numbers (2,200 characters, 5 hashtags) are not locale rules and are not repeated here: they live in caption.py and can be overridden with --limit, --hashtag-limit or the platform block of ~/.claude/instagram/config.json. What is Korean is how the feed cut is measured: Hangul is roughly twice as wide as Latin on a phone, so the cut is counted in display width (Hangul and emoji 2, Latin 1), 125 units, about 62 Hangul syllables. That number is an estimate, not a measurement; change it with --truncate.",
+  "truncate": {
+    "value": 125,
+    "unit": "width"
+  },
+  "paragraph_width": 220,
+  "wall_width": 300,
+  "emoji_per_100_warn": 4,
+  "hashtag_pattern": "(?:^|\\s)(#\\w+)",
+  "link_pattern": "https?://\\S+|\\bwww\\.\\S+|\\b[a-z0-9-]+\\.(?:com|co|io|net|org|ai|app|kr|co\\.kr|dev|me|link|ly)/\\S*",
+  "first_line_openers": [
+    {
+      "pattern": "^\\s*(?:안녕하세요|안녕|여러분\\s*안녕|반갑습니다|하이)",
+      "message": "인사로 시작합니다. 잘리기 전 자리는 인사가 아니라 내용 자리입니다"
+    },
+    {
+      "pattern": "(?:이번|오늘)\\s*(?:영상|릴스|게시물|포스팅|피드)에서는?|에\\s*대해\\s*(?:알아보겠습니다|알아볼게요|이야기해\\s*보겠습니다)|(?:알려|소개해)\\s*드리(?:겠습니다|려고\\s*합니다)",
+      "message": "예고로 시작합니다('오늘은 ~에 대해'). 결론부터 쓰세요"
+    },
+    {
+      "pattern": "^\\s*(?:혹시|여러분)\\s*[^.!?\\n]{0,30}(?:하신\\s*적|해\\s*보신\\s*적)\\s*있으신가요",
+      "message": "'~하신 적 있으신가요?'로 시작합니다. 흔한 광고 문구라 넘겨집니다"
+    }
+  ],
+  "asks": [
+    {
+      "type": "keyword",
+      "label": "댓글 키워드",
+      "pattern": "댓글(?:에|로|창에)?\\s*[\"'“‘\\[]?[A-Za-z0-9가-힣]{1,15}[\"'”’\\]]?\\s*(?:이?라고\\s*)?(?:남겨|적어|달아|써)|[\"'“‘\\[][A-Za-z0-9가-힣]{1,15}[\"'”’\\]]\\s*(?:이?라고\\s*)?댓글|(?i:\\bcomment (?:the word |\")?[A-Z0-9]{2,}\\b)"
+    },
+    {
+      "type": "dm",
+      "label": "DM",
+      "pattern": "(?:DM|디엠|dm)\\s*(?:주세요|보내|주시면|으로|로|주면)|(?i:\\b(?:dm|message) me\\b)"
+    },
+    {
+      "type": "save",
+      "label": "저장",
+      "pattern": "저장(?:해\\s*두|해두|하세요|해\\s*놓|해놓|해\\s*주세요|해주세요|하고)|(?i:\\bsave (?:this|it)\\b)"
+    },
+    {
+      "type": "share",
+      "label": "공유",
+      "pattern": "공유(?:해\\s*주세요|하세요|해주세요|해\\s*보세요)|(?:친구|동료|팀원)(?:에게|한테)\\s*(?:보내|공유)|(?i:\\bshare (?:this|it)\\b)"
+    },
+    {
+      "type": "follow",
+      "label": "팔로우",
+      "pattern": "팔로우(?:하고|하시면|해\\s*주세요|해주세요|하세요|\\s*부탁)|(?i:\\bfollow (?:me|for)\\b)"
+    },
+    {
+      "type": "link",
+      "label": "프로필 링크",
+      "pattern": "프로필\\s*(?:링크|상단\\s*링크|의\\s*링크)|링크는\\s*프로필|바이오\\s*링크|(?i:\\blink in (?:my )?bio\\b)"
+    },
+    {
+      "type": "swipe",
+      "label": "넘겨 보기",
+      "pattern": "(?:옆으로|왼쪽으로|오른쪽으로)\\s*(?:넘겨|밀어)|스와이프|(?i:\\b(?:swipe|tap) (?:through|left|right|for|to)\\b)"
+    },
+    {
+      "type": "question",
+      "label": "질문",
+      "pattern": "어떻게\\s*생각하세요|여러분은\\s*(?:어떤|어떻게|뭐)|댓글로\\s*알려|알려\\s*주세요\\s*[?!.]?$|어떤\\s*걸\\s*(?:고르|쓰)|(?i:\\btell me\\b|\\bwhat would you\\b|\\bwhich one\\b)"
+    },
+    {
+      "type": "comment",
+      "label": "댓글 요청",
+      "pattern": "댓글\\s*(?:남겨|달아|부탁)|(?i:\\bcomment below\\b)"
+    }
+  ],
+  "filler_tags": [
+    "#viral",
+    "#fyp",
+    "#explore",
+    "#explorepage",
+    "#foryou",
+    "#foryoupage",
+    "#trending",
+    "#instagood",
+    "#love",
+    "#follow",
+    "#like4like",
+    "#reels",
+    "#reelsinstagram",
+    "#viralreels",
+    "#instadaily",
+    "#f4f",
+    "#l4l",
+    "#좋아요",
+    "#좋아요반사",
+    "#좋반",
+    "#맞팔",
+    "#선팔",
+    "#선팔하면맞팔",
+    "#맞팔해요",
+    "#소통",
+    "#소통해요",
+    "#팔로우",
+    "#팔로우미",
+    "#팔로워",
+    "#일상",
+    "#데일리",
+    "#인스타그램",
+    "#인스타",
+    "#릴스",
+    "#릴스추천",
+    "#추천",
+    "#일상스타그램",
+    "#인친",
+    "#좋튀"
+  ]
+}
