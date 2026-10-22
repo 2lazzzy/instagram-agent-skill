@@ -19,6 +19,17 @@ Usage
   pbpaste | python3 detect.py -
   python3 detect.py draft.txt --json
   python3 detect.py before.txt after.txt      # compare two drafts
+  python3 detect.py draft_ko.txt --locale ko-KR
+
+Korean (ko-KR)
+  The same five checks with Korean measurements: sentence length in
+  syllables, concreteness per 100 eojeol (Korean whitespace tokens) using
+  Korean numbers, units and names, the Korean lexicon in
+  locales/ko-KR/slop.json, the middle dot and dash in the fingerprint, and a
+  VOICE check built on sentence-ending variety rather than contractions,
+  because Korean has no contractions and a formal ending (합니다) is a register,
+  not a tell. Thresholds mirror the English panel and are not calibrated
+  against any detector.
 """
 
 import argparse
@@ -31,6 +42,11 @@ import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LEX = os.path.join(HERE, "slop.json")
+sys.path.insert(0, os.path.join(HERE, "..", "ig-i18n"))
+try:                                     # shared locale code; optional for en-US
+    import ig_locale
+except ImportError:                      # ig-human copied without ig-i18n
+    ig_locale = None
 
 SENT_RE = re.compile(r"[^.!?\n]+[.!?]*")
 WORD_RE = re.compile(r"[A-Za-z']+")
@@ -190,38 +206,82 @@ def render(results, overall, verdict, label=None, out=sys.stdout):
     print("", file=out)
 
 
+def render_ko(results, overall, verdict, label=None, out=sys.stdout):
+    import human_ko
+    import ig_text
+    title = "AI 문체 점검 (로컬 휴리스틱, 탐지기 판정 아님)" + (f"  -  {label}" if label else "")
+    print("\n" + title, file=out)
+    print("=" * 62, file=out)
+    for name in CHECKS:
+        score, detail = results[name]
+        print(f"  {ig_text.pad_width(human_ko.LABELS[name], 13)} {bar(score)} {score:5.1f}", file=out)
+        print(f"  {'':<13} {detail}", file=out)
+    print("-" * 62, file=out)
+    print(f"  {ig_text.pad_width('사람 점수', 13)} {bar(overall)} {overall:5.1f}   "
+          f"{human_ko.VERDICTS[verdict]} ({verdict})", file=out)
+    if verdict != "PASS":
+        weakest = min(CHECKS, key=lambda c: results[c][0])
+        print(f"\n  가장 약한 신호: {human_ko.LABELS[weakest]}. 이것부터 고치세요.", file=out)
+    print("", file=out)
+
+
+def resolve_locale(cli, text):
+    """--locale, IG_LOCALE, profile, the text's language, en-US. See ig_locale."""
+    if ig_locale is None:
+        if cli and cli.lower() not in ("en", "en-us", "en_us"):
+            print("--locale needs the shared skills/ig-i18n folder next to ig-human.",
+                  file=sys.stderr)
+            sys.exit(2)
+        return "en-US"
+    return ig_locale.resolve_or_exit(cli, text).locale
+
+
 def main():
     ap = argparse.ArgumentParser(description="Score how machine-written a draft looks.")
     ap.add_argument("input", nargs="?", default="-", help="file, or - for stdin")
     ap.add_argument("compare", nargs="?", help="second file, to show before/after")
     ap.add_argument("--json", action="store_true")
-    ap.add_argument("--lexicon", default=LEX)
+    ap.add_argument("--lexicon", default=None)
+    if ig_locale:
+        ig_locale.add_argument(ap)
+    else:
+        ap.add_argument("--locale", default=None)
     args = ap.parse_args()
 
-    lex = json.load(open(args.lexicon, encoding="utf-8"))
     read = lambda p: sys.stdin.read() if p == "-" else open(p, encoding="utf-8").read()
 
     targets = [(args.input, read(args.input))]
     if args.compare:
         targets.append((args.compare, read(args.compare)))
 
+    locale = resolve_locale(args.locale, "\n".join(t for _, t in targets))
+    if locale == "ko-KR":
+        import human_ko
+        lex = human_ko.load_lexicon(args.lexicon or human_ko.LEX_KO)
+        score, show = human_ko.run, render_ko
+    else:
+        lex = json.load(open(args.lexicon or LEX, encoding="utf-8"))
+        score, show = run, render
+
     payload = []
     for name, text in targets:
-        results, overall, verdict = run(text, lex)
+        results, overall, verdict = score(text, lex)
         payload.append({
             "source": name,
             "checks": {k: {"score": round(v[0], 1), "detail": v[1]} for k, v in results.items()},
             "human_score": round(overall, 1),
             "verdict": verdict,
+            "locale": locale,
         })
 
     if args.json:
-        print(json.dumps(payload if args.compare else payload[0], indent=2))
+        print(json.dumps(payload if args.compare else payload[0], indent=2,
+                         ensure_ascii=locale == "en-US"))
         return
 
     for (name, text), p in zip(targets, payload):
-        results, overall, verdict = run(text, lex)
-        render(results, overall, verdict, label=os.path.basename(name) if args.compare else None)
+        results, overall, verdict = score(text, lex)
+        show(results, overall, verdict, label=os.path.basename(name) if args.compare else None)
     if args.compare:
         a, b = payload
         delta = b["human_score"] - a["human_score"]

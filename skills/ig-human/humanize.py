@@ -24,6 +24,15 @@ Usage
   pbpaste | python3 humanize.py - --report
   python3 humanize.py draft.txt --json
   python3 humanize.py draft.txt -o clean.txt
+  python3 humanize.py draft_ko.txt --locale ko-KR --report
+
+Korean (ko-KR)
+  Detection and correction are split. Only meaning-preserving fixes run
+  automatically (invisible characters, curly quotes, double passives such as
+  되어진다 -> 된다). Hype, translationese, stock openers and closers, connector
+  chains, repeated endings and CTAs, the middle dot and the dash are listed
+  with their line numbers and a suggestion, and never rewritten. Lexicon:
+  locales/ko-KR/slop.json. Logic: human_ko.py.
 """
 
 import argparse
@@ -35,6 +44,11 @@ import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LEX = os.path.join(HERE, "slop.json")
+sys.path.insert(0, os.path.join(HERE, "..", "ig-i18n"))
+try:                                     # shared locale code; optional for en-US
+    import ig_locale
+except ImportError:                      # ig-human copied without ig-i18n
+    ig_locale = None
 
 URL_RE = re.compile(r"https?://\S+|www\.\S+|\S+@\S+\.\S+")
 SENT_RE = re.compile(r"[^.!?\n]+[.!?]*")
@@ -253,21 +267,85 @@ def render_report(report, out=sys.stderr):
     print("", file=out)
 
 
+def render_report_ko(report, out=sys.stderr):
+    def head(title):
+        print(f"\n{title}\n" + "-" * 40, file=out)
+
+    fixed = sum(h["count"] for h in report["invisible"]) \
+        + sum(h["count"] for h in report["typographic"]) \
+        + sum(h["count"] for h in report["lexical"])
+    head("다듬기 보고서")
+    print(f"자동 수정 {fixed}곳, 확인할 표현 {len(report['suggestions'])}종, "
+          f"구조 신호 {len(report['structures'])}개", file=out)
+    print("자동 수정은 뜻이 바뀌지 않는 것만 합니다. 나머지는 후보일 뿐 판정이 아닙니다.", file=out)
+    if report["invisible"]:
+        head("1. 보이지 않는 문자 (삭제함)")
+        for h in report["invisible"]:
+            print(f"  {h['count']:>3}x  {h['name']}  -> {h['action']}", file=out)
+    if report["typographic"]:
+        head("2. 문장부호 (바꿈)")
+        for h in report["typographic"]:
+            print(f"  {h['count']:>3}x  {h['name']}  -> {h['to']}", file=out)
+    if report["lexical"]:
+        head("3. 이중 피동 (바꿈)")
+        for h in report["lexical"]:
+            print(f"  {h['count']:>3}x  {h['find']}  -> {h['replace']}", file=out)
+    if report["suggestions"]:
+        head("4. 확인할 표현 (자동 수정 안 함)")
+        for h in report["suggestions"]:
+            lines = ", ".join(map(str, h["lines"][:5]))
+            print(f"  {h['count']:>3}x  {h['find']}  [{h['family']}]  {lines}번째 줄\n"
+                  f"        제안: {h['suggest']}", file=out)
+    if report["structures"]:
+        head("5. 구조 신호 (자동 수정 안 함, 직접 고치세요)")
+        for h in report["structures"]:
+            where = f"  {', '.join(map(str, h['lines'][:5]))}번째 줄" if h.get("lines") else ""
+            print(f"  {h['count']:>3}x  {h['name']}{where}\n        {h['fix']}", file=out)
+    if not any(report.values()):
+        head("깨끗함")
+        print("  고칠 것도, 확인할 것도 없습니다.", file=out)
+    print("", file=out)
+
+
+def resolve_locale(cli, text):
+    """--locale, IG_LOCALE, profile, the text's language, en-US. See ig_locale."""
+    if ig_locale is None:
+        if cli and cli.lower() not in ("en", "en-us", "en_us"):
+            print("--locale needs the shared skills/ig-i18n folder next to ig-human.",
+                  file=sys.stderr)
+            sys.exit(2)
+        return "en-US"
+    return ig_locale.resolve_or_exit(cli, text).locale
+
+
 def main():
     ap = argparse.ArgumentParser(description="Strip the machine fingerprint out of a draft.")
     ap.add_argument("input", nargs="?", default="-", help="file, or - for stdin")
     ap.add_argument("-o", "--out", help="write cleaned text here instead of stdout")
     ap.add_argument("--report", action="store_true", help="print what changed, to stderr")
     ap.add_argument("--json", action="store_true", help="emit {text, report} as JSON")
-    ap.add_argument("--lexicon", default=LEX, help="path to slop.json")
+    ap.add_argument("--lexicon", default=None, help="path to slop.json")
+    if ig_locale:
+        ig_locale.add_argument(ap)
+    else:
+        ap.add_argument("--locale", default=None)
     args = ap.parse_args()
 
     raw = sys.stdin.read() if args.input == "-" else open(args.input, encoding="utf-8").read()
-    lex = load_lexicon(args.lexicon)
-    clean, report = humanize(raw, lex)
+    locale = resolve_locale(args.locale, raw)
+    if locale == "ko-KR":
+        import human_ko
+        lex = human_ko.load_lexicon(args.lexicon or human_ko.LEX_KO)
+        clean, report = human_ko.humanize(raw, lex, pass_invisible, protect_urls, restore_urls)
+        render = render_report_ko
+    else:
+        lex = load_lexicon(args.lexicon or LEX)
+        clean, report = humanize(raw, lex)
+        render = render_report
 
     if args.json:
-        print(json.dumps({"text": clean, "report": report}, indent=2, ensure_ascii=False))
+        print(json.dumps({"text": clean, "report": report, "locale": locale},
+                         indent=2, ensure_ascii=False))
         return
     if args.out:
         with open(args.out, "w", encoding="utf-8") as fh:
@@ -276,7 +354,7 @@ def main():
     else:
         sys.stdout.write(clean)
     if args.report:
-        render_report(report)
+        render(report)
 
 
 if __name__ == "__main__":
