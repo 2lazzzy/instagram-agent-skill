@@ -32,27 +32,11 @@ def is_pictographic(ch):
 def emoji_clusters(text):
     """Every emoji as one item: skin tones, VS16, ZWJ families and flags
     stay attached to their base, so 👩‍💻 is one emoji and not three."""
-    out, i, n = [], 0, len(text)
-    while i < n:
-        ch = text[i]
-        cp = ord(ch)
-        if cp in _RI and i + 1 < n and ord(text[i + 1]) in _RI:
-            out.append(text[i:i + 2])
-            i += 2
-            continue
-        if not is_pictographic(ch):
-            i += 1
-            continue
-        j = i + 1
-        while j < n:
-            c = ord(text[j])
-            if text[j] == VS16 or c in _SKIN:
-                j += 1
-            elif text[j] == ZWJ and j + 1 < n and is_pictographic(text[j + 1]):
-                j += 2
-            else:
-                break
-        out.append(text[i:j])
+    out, i = [], 0
+    while i < len(text):
+        j = _cluster_end(text, i)
+        if j - i > 1 or is_pictographic(text[i]):
+            out.append(text[i:j])
         i = j
     return out
 
@@ -67,19 +51,47 @@ def char_width(ch):
     return 1
 
 
+def _cluster_end(text, i):
+    """Index just past the emoji cluster starting at i (i + 1 for plain text)."""
+    n = len(text)
+    if ord(text[i]) in _RI and i + 1 < n and ord(text[i + 1]) in _RI:
+        return i + 2
+    if not is_pictographic(text[i]):
+        return i + 1
+    j = i + 1
+    while j < n:
+        if text[j] == VS16 or ord(text[j]) in _SKIN:
+            j += 1
+        elif text[j] == ZWJ and j + 1 < n and is_pictographic(text[j + 1]):
+            j += 2
+        else:
+            break
+    return j
+
+
+def segments(text):
+    """(piece, width) for every visible unit: one character, or one whole emoji."""
+    i, n = 0, len(text)
+    while i < n:
+        j = _cluster_end(text, i)
+        piece = text[i:j]
+        yield piece, (2 if j - i > 1 or is_pictographic(text[i]) else char_width(text[i]))
+        i = j
+
+
 def display_width(text):
-    return sum(char_width(c) for c in text)
+    return sum(w for _, w in segments(text))
 
 
 def cut_width(text, width):
-    """The longest prefix whose display width fits in `width`."""
-    total = 0
-    for i, ch in enumerate(text):
-        w = char_width(ch)
+    """The longest prefix whose display width fits in `width`. Never splits an emoji."""
+    total, out = 0, []
+    for piece, w in segments(text):
         if total + w > width:
-            return text[:i]
+            break
         total += w
-    return text
+        out.append(piece)
+    return "".join(out)
 
 
 def wrap_width(text, width):
