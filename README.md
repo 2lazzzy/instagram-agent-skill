@@ -17,12 +17,31 @@ see it.
 
 **Nothing gets posted until you say yes.** These skills write. You post.
 
+## About this fork
+
+This is [2lazzzy](https://github.com/2lazzzy)'s fork of Jake Schincariol's
+[instagram-agent-skill](https://github.com/Jakeschincariol/instagram-agent-skill).
+English (en-US) output is unchanged and locked by golden tests. What the fork adds:
+
+| Area | Original | This fork |
+| --- | --- | --- |
+| Languages | English only | English (default) and Korean (ko-KR), chosen per request with `--locale`, `IG_LOCALE`, config, `voice.md`, or the language you wrote in |
+| Hook formulas | 26 English formulas | The same 26 rebuilt for Korean word order, each with an `adaptation` note |
+| Hook score | Word counts and English patterns | Korean: spoken syllables, Korean numbers and units, verb stems, sentence-final predicates, dropped subjects |
+| Reel length | Words per minute | Korean: syllables per minute, numbers and English read as Korean sounds, pauses, calibration from one recording |
+| Caption linter | English feed truncation and hashtags | Korean: Hangul hashtags, display-width truncation, Korean first lines, mixed-language asks, emoji clusters |
+| Humanizer | English slop and em dashes | Korean: detection and correction split; only meaning-safe fixes are automatic, the rest are flagged by line (hype, translationese, stock openers, middle dots, dashes) |
+| Other 9 skills | English guides | A Korean guide per skill (`locales/ko-KR/guide.md`) and Korean templates |
+| Tests | | 145 tests: English golden output, Korean unit and CLI tests, en/ko regression, install compatibility |
+
+Korean guide: [README.ko.md](README.ko.md). How the locales are built: [docs/i18n.md](docs/i18n.md).
+
 ## Install
 
 Paste this into Claude:
 
 ```
-https://github.com/Jakeschincariol/instagram-agent-skill
+https://github.com/2lazzzy/instagram-agent-skill
 
 Install this skill, then confirm /ig-reel works.
 ```
@@ -30,14 +49,14 @@ Install this skill, then confirm /ig-reel works.
 Or do it yourself, in Claude Code:
 
 ```bash
-git clone https://github.com/Jakeschincariol/instagram-agent-skill.git
+git clone https://github.com/2lazzzy/instagram-agent-skill.git
 cp -r instagram-agent-skill/skills/ig-* ~/.claude/skills/
 ```
 
 Or as a plugin:
 
 ```
-/plugin marketplace add Jakeschincariol/instagram-agent-skill
+/plugin marketplace add 2lazzzy/instagram-agent-skill
 /plugin install instagram-agent
 ```
 

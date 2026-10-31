@@ -31,7 +31,7 @@ English: [README.md](README.md).
 Claude에 이렇게 붙여 넣거나:
 
 ```
-https://github.com/Jakeschincariol/instagram-agent-skill
+https://github.com/2lazzzy/instagram-agent-skill
 
 이 스킬을 설치하고 /ig-reel 이 동작하는지 확인해 줘.
 ```
@@ -39,14 +39,14 @@ https://github.com/Jakeschincariol/instagram-agent-skill
 Claude Code에서 직접:
 
 ```bash
-git clone https://github.com/Jakeschincariol/instagram-agent-skill.git
+git clone https://github.com/2lazzzy/instagram-agent-skill.git
 cp -r instagram-agent-skill/skills/ig-* ~/.claude/skills/
 ```
 
 플러그인으로:
 
 ```
-/plugin marketplace add Jakeschincariol/instagram-agent-skill
+/plugin marketplace add 2lazzzy/instagram-agent-skill
 /plugin install instagram-agent
 ```
 

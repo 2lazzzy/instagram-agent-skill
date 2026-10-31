@@ -58,7 +58,8 @@ def run_case(script, argv, config_dir):
     proc = subprocess.run([sys.executable, os.path.join(SKILLS, script)] + args,
                           capture_output=True, text=True, encoding="utf-8",
                           env=clean_env(config_dir), cwd=ROOT)
-    return proc.returncode, proc.stdout, proc.stderr
+    # Fixture paths are absolute, so the checkout location is written as <ROOT>.
+    return proc.returncode, proc.stdout.replace(ROOT, "<ROOT>"), proc.stderr.replace(ROOT, "<ROOT>")
 
 
 def strip_locale(obj):
