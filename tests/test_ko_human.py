@@ -2,6 +2,7 @@
 not treated as AI writing, and the score moves when the flags are fixed."""
 
 import json
+from pathlib import Path
 import unittest
 
 from helpers import IsolatedConfig, fx, run, run_json
@@ -149,6 +150,141 @@ class AddedAfterComparison(unittest.TestCase):
         found = {s["find"] for s in rep["suggestions"]}
         self.assertFalse(found & {"무조건", "함으로써"}, found)
         self.assertNotIn("push-repeat", {s["id"] for s in rep["structures"]})
+
+
+class ContentPreservation(unittest.TestCase):
+    def test_leading_decimals_keep_their_value(self):
+        for text in (".5 tsp salt.\n.75 L water.\n\n.25 kg flour.",
+                     "Try this!\n.5 tsp salt. Use .75 L water, .25 kg flour."):
+            with self.subTest(text=text):
+                _, result, _ = run_json("ig-human/humanize.py", ["-", "--locale", "en-US"], stdin=text)
+                self.assertEqual(result["text"], text + "\n")
+                self.assertEqual(result["report"]["lexical"], [])
+
+    def test_deleted_openers_still_leave_clean_punctuation(self):
+        _, result, _ = run_json("ig-human/humanize.py", ["-", "--locale", "en-US"],
+                                stdin="Let's face it, we need this.")
+        self.assertEqual(result["text"], "We need this.\n")
+
+    def test_mentions_and_bare_links_are_not_plain_words(self):
+        text = ("Thanks @foster and @leverage.dev. Visit journey.com/guide, "
+                "https://example.com/leverage or hello@journey.com. We leverage this.")
+        _, result, _ = run_json("ig-human/humanize.py", ["-", "--locale", "en-US"], stdin=text)
+        self.assertEqual(result["text"], text.replace("We leverage this.", "We use this.") + "\n")
+
+    def test_korean_corrections_leave_bare_link_paths_intact(self):
+        text = "자료는 example.com/되어진다?mode=잊혀진 에 있어요. @foster 님도 봤어요. 처리되어진다."
+        out, _ = humanize(text)
+        self.assertEqual(out, text.replace("처리되어진다.", "처리된다.") + "\n")
+
+    def test_emoji_joiners_survive_but_hidden_text_characters_do_not(self):
+        emoji = "👩🏽‍💻 👨‍👩‍👧 🏳️‍🌈 ❤️‍🔥 🙂‍↔️ 🙂‍↕️"
+        for locale in ("en-US", "ko-KR"):
+            with self.subTest(locale=locale):
+                _, result, _ = run_json("ig-human/humanize.py", ["-", "--locale", locale],
+                                        stdin=emoji + " A\u200dB\u200bC")
+                self.assertEqual(result["text"], emoji + " ABC\n")
+                self.assertEqual(sum(h["count"] for h in result["report"]["invisible"]), 2)
+
+    def test_detector_distinguishes_emoji_joiners_from_hidden_characters(self):
+        for locale in ("en-US", "ko-KR"):
+            with self.subTest(locale=locale):
+                _, clean, _ = run_json("ig-human/detect.py", ["-", "--locale", locale],
+                                       stdin="👩🏽‍💻 👨‍👩‍👧 🙂‍↔️ 🙂‍↕️")
+                _, hidden, _ = run_json("ig-human/detect.py", ["-", "--locale", locale], stdin="👩🏽‍💻 A\u200dB")
+                self.assertEqual(clean["checks"]["FINGERPRINT"]["score"], 100.0)
+                self.assertLess(hidden["checks"]["FINGERPRINT"]["score"], 100.0)
+
+
+class InsufficientDetection(unittest.TestCase):
+    COMMENTS = {
+        "en-US": "I tried your recipe with my family last night and we all loved the result.",
+        "ko-KR": "어제 알려 주신 방법을 우리 팀 회의에서 써 봤는데 시간이 줄어서 다음 회의에도 다시 써 보려고 해요.",
+    }
+
+    def test_one_to_three_sentences_complete_without_an_invented_score(self):
+        for locale, sentence in self.COMMENTS.items():
+            for count in (1, 2, 3):
+                with self.subTest(locale=locale, sentences=count):
+                    code, result, _ = run_json("ig-human/detect.py", ["-", "--locale", locale],
+                                               stdin=" ".join([sentence] * count))
+                    self.assertEqual(code, 0)
+                    self.assertEqual(result["verdict"], "INSUFFICIENT")
+                    self.assertIsNone(result["human_score"])
+                    self.assertIsNone(result["checks"]["BURSTINESS"]["score"])
+
+    def test_empty_input_has_no_score(self):
+        for locale in ("en-US", "ko-KR"):
+            with self.subTest(locale=locale):
+                code, result, _ = run_json("ig-human/detect.py", ["-", "--locale", locale], stdin="")
+                self.assertEqual(code, 0)
+                self.assertEqual(result["verdict"], "INSUFFICIENT")
+                self.assertIsNone(result["human_score"])
+                self.assertTrue(all(c["score"] is None for c in result["checks"].values()))
+
+    def test_decimal_and_domain_dots_do_not_inflate_sentence_count(self):
+        texts = (
+            "I found the guide at example.com and it helped me finish my project yesterday. "
+            "I shared it with our team at journey.com and everyone liked the practical examples.",
+            "I measured exactly 1.5 liters of water before I started making dinner for my family. "
+            "We added another 2.5 cups of flour and mixed everything slowly until it was ready.",
+        )
+        for text in texts:
+            with self.subTest(text=text):
+                code, result, _ = run_json("ig-human/detect.py", ["-", "--locale", "en-US"], stdin=text)
+                self.assertEqual(code, 0)
+                self.assertEqual(result["verdict"], "INSUFFICIENT")
+                self.assertIsNone(result["checks"]["BURSTINESS"]["score"])
+                self.assertIsNone(result["human_score"])
+                code, out, _ = run("ig-human/detect.py", ["-", "--locale", "en-US"], stdin=text)
+                self.assertEqual(code, 0)
+                self.assertIn("INSUFFICIENT", out)
+
+    def test_real_sentence_boundaries_keep_long_text_assessable(self):
+        sentences = (
+            "I wrote seven clear notes for our next team meeting",
+            "We copied the final version into our shared project folder",
+            "Our manager read every note before the first customer call",
+            "We discussed the results together and chose the next task",
+        )
+        texts = (' '.join('"' + s + '."' for s in sentences), '\n'.join(sentences))
+        for text in texts:
+            with self.subTest(text=text):
+                _, result, _ = run_json("ig-human/detect.py", ["-", "--locale", "en-US"], stdin=text)
+                self.assertIsNotNone(result["checks"]["BURSTINESS"]["score"])
+                self.assertIn("across 4 sentences", result["checks"]["BURSTINESS"]["detail"])
+                self.assertIsNotNone(result["human_score"])
+                self.assertNotEqual(result["verdict"], "INSUFFICIENT")
+
+    def test_text_output_explains_abstention_without_a_rewrite_loop(self):
+        for locale, text in self.COMMENTS.items():
+            with self.subTest(locale=locale):
+                code, out, err = run("ig-human/detect.py", ["-", "--locale", locale], stdin=text)
+                self.assertEqual(code, 0, err)
+                self.assertIn("INSUFFICIENT", out)
+                self.assertIn("판정 보류" if locale == "ko-KR" else "N/A", out)
+                self.assertNotIn("50.0", out)
+                self.assertNotIn("Fix that first", out)
+                self.assertNotIn("이것부터 고치세요", out)
+
+    def test_comparison_with_short_draft_has_no_fake_delta(self):
+        for locale, text in self.COMMENTS.items():
+            with self.subTest(locale=locale), IsolatedConfig() as cfg:
+                short = Path(cfg.path) / "short.txt"
+                short.write_text(text, encoding="utf-8")
+                long = fx("draft_human.txt", "en" if locale == "en-US" else "ko")
+                for before, after in ((str(short), long), (long, str(short))):
+                    expected_code, _, _ = run("ig-human/detect.py", [after, "--locale", locale],
+                                               config_dir=cfg.path)
+                    code, out, err = run("ig-human/detect.py", [before, after, "--locale", locale],
+                                         config_dir=cfg.path)
+                    self.assertEqual(code, expected_code, err)
+                    self.assertIn("INSUFFICIENT", out)
+                    self.assertIn("비교 불가" if locale == "ko-KR" else "not comparable", out)
+                    _, both, _ = run_json("ig-human/detect.py", [before, after, "--locale", locale],
+                                          config_dir=cfg.path)
+                    short_result = next(p for p in both if p["source"] == str(short))
+                    self.assertIsNone(short_result["human_score"])
 
 
 if __name__ == "__main__":

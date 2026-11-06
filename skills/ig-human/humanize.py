@@ -4,15 +4,14 @@ humanize.py - strip the machine fingerprint out of a draft.
 
 Three passes, in this order:
 
-  1. INVISIBLE   delete or normalise the characters a human keyboard never
-                 produces: zero-width joiners, word joiners, soft hyphens,
+  1. INVISIBLE   delete or normalise stray characters: zero-width joiners,
+                 word joiners, soft hyphens,
                  BOMs, Unicode tag characters, non-breaking and narrow spaces.
-                 These survive copy-paste and are the most mechanical tell in
-                 any generated text.
+                 Emoji joiners are preserved because they form visible content.
   2. TYPOGRAPHIC em dash -> comma, en dash -> hyphen, curly quotes -> straight,
                  ellipsis -> three dots, bullet -> hyphen.
   3. LEXICAL     replace the slop lexicon in slop.json with plain words,
-                 preserving capitalisation and leaving URLs untouched.
+                 preserving capitalisation, numbers, URLs and @mentions.
 
 Structural tells (rule-of-three, "not just X, it's Y", hashtag walls) are
 REPORTED, never auto-rewritten - rewriting a sentence's shape needs judgement,
@@ -50,8 +49,33 @@ try:                                     # shared locale code; optional for en-U
 except ImportError:                      # ig-human copied without ig-i18n
     ig_locale = None
 
-URL_RE = re.compile(r"https?://\S+|www\.\S+|\S+@\S+\.\S+")
-SENT_RE = re.compile(r"[^.!?\n]+[.!?]*")
+URL_RE = re.compile(
+    r"https?://\S+|www\.\S+|\S+@\S+\.\S+"
+    r"|(?<![\w@])(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}"
+    r"(?::\d+)?(?:[/?#][^\s<>\"']*)?"
+    r"|(?<![\w@])@[a-z0-9_][a-z0-9_.]*", re.IGNORECASE)
+# Punctuation ends a sentence only before whitespace or the end of the text,
+# optionally after closing quotes/brackets. Decimal and domain dots stay inside.
+SENT_RE = re.compile(r"[^\n]+?(?:[.!?]+[\"'”’)\]]*(?=\s|$)|(?=\n|$))")
+
+# Keep this local so the English tools still work without ig-i18n. Include
+# the arrow components used in horizontal and vertical head-shaking emoji.
+_PICTO = (r"[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF"
+          r"\u2194\u2195\u231A-\u231B\u23E9-\u23FA\u3030\u303D\u3297\u3299]")
+_EMOJI_PART = _PICTO + r"[\uFE0F\U0001F3FB-\U0001F3FF]*"
+_EMOJI_JOINED = re.compile(_EMOJI_PART + r"(?:\u200D" + _EMOJI_PART + r")+")
+
+
+def emoji_joiner_positions(text):
+    """ZWJs that join emoji are visible content, not hidden text artefacts."""
+    return {m.start() + i for m in _EMOJI_JOINED.finditer(text)
+            for i, ch in enumerate(m.group()) if ch == "\u200d"}
+
+
+def invisible_count(text):
+    protected = emoji_joiner_positions(text)
+    return sum(1 for i, ch in enumerate(text)
+               if unicodedata.category(ch) == "Cf" and i not in protected)
 
 
 def load_lexicon(path=LEX):
@@ -68,7 +92,7 @@ def _cp(spec):
 
 
 def protect_urls(text):
-    """Swap URLs for placeholders so no pass rewrites inside a link."""
+    """Protect links, email addresses and account mentions from rewriting."""
     found = []
 
     def stash(m):
@@ -93,17 +117,21 @@ def pass_invisible(text, lex):
             pattern = "[" + re.escape(chr(cp[0])) + "-" + re.escape(chr(cp[1])) + "]"
         else:
             pattern = re.escape(chr(cp))
-        n = len(re.findall(pattern, text))
+        protected = emoji_joiner_positions(text)
+        n = sum(1 for m in re.finditer(pattern, text) if m.start() not in protected)
         if n:
             hits.append({"name": entry["cp"] + " " + entry["name"], "count": n,
                          "action": entry["action"]})
-            text = re.sub(pattern, "" if entry["action"] == "delete" else " ", text)
-    # Any remaining Cf (format) character is invisible by definition.
-    stray = [c for c in text if unicodedata.category(c) == "Cf"]
+            replacement = "" if entry["action"] == "delete" else " "
+            text = re.sub(pattern, lambda m: m.group() if m.start() in protected else replacement, text)
+    # Preserve emoji joiners; other remaining format characters are artefacts.
+    protected = emoji_joiner_positions(text)
+    stray = [i for i, c in enumerate(text) if unicodedata.category(c) == "Cf" and i not in protected]
     if stray:
         hits.append({"name": "other invisible format chars", "count": len(stray),
                      "action": "delete"})
-        text = "".join(c for c in text if unicodedata.category(c) != "Cf")
+        text = "".join(c for i, c in enumerate(text)
+                       if unicodedata.category(c) != "Cf" or i in protected)
     return text, hits
 
 
@@ -125,7 +153,7 @@ def pass_typographic(text, lex):
         else:
             text = text.replace(ch, entry["to"])
     # A comma inserted before existing punctuation reads wrong.
-    text = re.sub(r",\s*([,.;:!?])", r"\1", text)
+    text = re.sub(r",\s*([,;:!?]|\.(?!\d))", r"\1", text)
     text = re.sub(r",\s*\n", "\n", text)
     return text, hits
 
@@ -159,15 +187,16 @@ def pass_lexical(text, lex):
     # punctuation behind ("system. ." or a line that now opens on a comma),
     # and that reads worse than the slop did.
     text = re.sub(r"[ \t]{2,}", " ", text)
-    text = re.sub(r"(?m)^[ \t]*(?:[,.;:]+[ \t]*)+", "", text)
+    # A leading decimal point is part of a number, not orphaned punctuation.
+    text = re.sub(r"(?m)^[ \t]*(?:(?:[,;:]|\.(?!\d))+[ \t]*)+", "", text)
     text = re.sub(r"(?m)^[ \t](?=\S)", "", text)       # one space left by a deletion.
                                                       # Deeper indents are deliberate.
-    text = re.sub(r"\s+([,.;:!?])", r"\1", text)
-    text = re.sub(r",\s*([,.;:!?])", r"\1", text)      # an em dash became a comma,
+    text = re.sub(r"\s+([,;:!?]|\.(?!\d))", r"\1", text)
+    text = re.sub(r",\s*([,;:!?]|\.(?!\d))", r"\1", text)  # an em dash became a comma,
                                                       # then the clause after it went
     text = text.replace("...", "\x00ELL\x00")          # protect real ellipses
-    text = re.sub(r"\.\s*\.+", ".", text)
-    text = re.sub(r"([!?])\s*\.", r"\1", text)
+    text = re.sub(r"\.\s*(?:\.(?!\d))+", ".", text)
+    text = re.sub(r"([!?])\s*\.(?!\d)", r"\1", text)
     text = text.replace("\x00ELL\x00", "...")
     text = re.sub(r"(?m)^[ \t]+$", "", text)
     text = re.sub(r"\n{3,}", "\n\n", text)

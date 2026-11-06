@@ -91,6 +91,19 @@ class Asks(unittest.TestCase):
         a, _ = lint("본문.\n\nDM 주세요. DM me for the file.")
         self.assertEqual(a["asks"], ["DM"])
 
+    def test_comment_below_is_one_general_request(self):
+        for text in ("Comment below.", "본문. Comment below!", "comment BELOW"):
+            a, c = lint(text)
+            self.assertEqual(a["asks"], ["댓글 요청"], text)
+            self.assertEqual(c["ONE ASK"]["status"], "PASS", text)
+
+    def test_explicit_english_keywords_are_still_recognised(self):
+        for text in ('Comment "GUIDE" below.', 'Comment the word below.',
+                     'Comment GUIDE to get the file.'):
+            a, c = lint(text)
+            self.assertEqual(a["asks"], ["댓글 키워드"], text)
+            self.assertEqual(c["ONE ASK"]["status"], "PASS", text)
+
     def test_link_in_caption(self):
         _, c = lint("자세한 건 example.co.kr/guide 참고")
         self.assertEqual(c["LINKS"]["status"], "WARN")

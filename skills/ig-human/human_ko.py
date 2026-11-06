@@ -27,7 +27,6 @@ import os
 import re
 import statistics
 import sys
-import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LEX_KO = os.path.join(HERE, "locales", "ko-KR", "slop.json")
@@ -35,6 +34,7 @@ LEX_EN = os.path.join(HERE, "slop.json")
 sys.path.insert(0, os.path.join(HERE, "..", "ig-i18n"))
 import ig_ko      # noqa: E402
 import ig_locale  # noqa: E402
+from humanize import invisible_count
 
 HANGUL = re.compile(r"[가-힣]")
 
@@ -224,7 +224,7 @@ def check_burstiness(text):
     lens = [ig_ko.length_units(s) for s in _sentences(text)]
     lens = [n for n in lens if n > 2]
     if len(lens) < 4:
-        return 50.0, "너무 짧아서 판단 보류"
+        return None, "평가할 문장이 4개 미만이라 판단 불가"
     mean = statistics.mean(lens)
     cv = statistics.pstdev(lens) / mean if mean else 0
     # Korean sentences measured in syllables vary less than English ones measured
@@ -235,7 +235,7 @@ def check_burstiness(text):
 def check_specificity(text):
     toks = ig_ko.eojeol(text)
     if len(toks) < 15:
-        return 50.0, "너무 짧아서 판단 보류"
+        return None, "어절이 15개 미만이라 판단 불가"
     hits = len(ig_ko.concrete(text))
     density = hits * 100 / len(toks)
     return scale(density, human=6.0, machine=0.5), \
@@ -245,7 +245,7 @@ def check_specificity(text):
 def check_slop(text, lex):
     toks = ig_ko.eojeol(text)
     if not toks:
-        return 50.0, "비어 있음"
+        return None, "평가할 어절이 없어 판단 불가"
     terms = find_terms(text, lex)
     auto = sum(len(a["re"].findall(text)) for a in lex["auto"])
     hits = sum(t["count"] for t in terms) + auto
@@ -258,7 +258,9 @@ def check_slop(text, lex):
 
 
 def check_fingerprint(text):
-    invisible = sum(1 for c in text if unicodedata.category(c) == "Cf")
+    if not text.strip():
+        return None, "비어 있어 판단 불가"
+    invisible = invisible_count(text)
     dash = len(re.findall(r"—|―", text))
     dot = len(re.findall(r"[가-힣A-Za-z0-9]\s?·\s?[가-힣A-Za-z0-9]", text))
     curly = sum(text.count(c) for c in "‘’“”")
@@ -274,7 +276,7 @@ def check_fingerprint(text):
 def check_voice(text, lex):
     toks = ig_ko.eojeol(text)
     if len(toks) < 15:
-        return 50.0, "너무 짧아서 판단 보류"
+        return None, "어절이 15개 미만이라 판단 불가"
     sents = _sentences(text)
     ends = [ig_ko.final_word(s) for s in sents]
     ends = [e for e in ends if e]
@@ -295,7 +297,7 @@ def check_voice(text, lex):
 CHECKS = ["BURSTINESS", "SPECIFICITY", "SLOP DENSITY", "FINGERPRINT", "VOICE"]
 LABELS = {"BURSTINESS": "문장 리듬", "SPECIFICITY": "구체성", "SLOP DENSITY": "상투 표현",
           "FINGERPRINT": "문자 흔적", "VOICE": "목소리"}
-VERDICTS = {"PASS": "통과", "REVIEW": "검토", "FLAGGED": "의심"}
+VERDICTS = {"PASS": "통과", "REVIEW": "검토", "FLAGGED": "의심", "INSUFFICIENT": "판정 보류"}
 
 
 def run(text, lex):
@@ -307,6 +309,8 @@ def run(text, lex):
         "VOICE": check_voice(text, lex),
     }
     scores = [results[c][0] for c in CHECKS]
+    if any(s is None for s in scores):
+        return results, None, "INSUFFICIENT"
     overall = statistics.mean(scores) * 0.6 + min(scores) * 0.4
     verdict = "PASS" if overall >= 70 and min(scores) >= 55 else (
         "REVIEW" if overall >= 50 else "FLAGGED")

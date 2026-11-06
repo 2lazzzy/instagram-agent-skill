@@ -42,7 +42,7 @@ once, before anything else, in this order:
 4. The language the user wrote the request in.
 5. en-US.
 
-For en-US, follow this file exactly as written; nothing about English changed.
+For en-US, follow this file as written.
 For ko-KR, read `../ig-i18n/style-ko-KR.md` and `locales/ko-KR/guide.md` (both
 relative to this folder) before writing, and where they differ from the English
 examples below, they win. Every line of output is Korean, including labels and
@@ -65,12 +65,12 @@ their own script.
 
 ## What gets fixed automatically
 
-**1. Invisible characters.** Zero-width spaces and joiners, word joiners, soft
-hyphens, byte-order marks, Unicode tag characters, invisible separators,
-non-breaking and narrow spaces. A keyboard does not produce these. They survive
-copy-paste, they are invisible in every editor, and they are the most
-mechanical thing in generated text. `humanize.py` deletes every one, including
-any remaining Unicode format character it does not have a name for.
+**1. Invisible characters.** Remove stray zero-width spaces and joiners, word
+joiners, soft hyphens, byte-order marks, Unicode tag characters and invisible
+separators; normalise non-breaking and narrow spaces. Preserve the joiners in
+emoji such as 👩‍💻 and 👨‍👩‍👧: deleting those changes the visible content.
+Both the cleaner and the detector distinguish these emoji joiners from stray
+format characters in ordinary text.
 
 **2. Typography.** Em dash to comma, en dash to hyphen, curly quotes to
 straight, ellipsis to three dots, bullet character to hyphen. The em dash pass
@@ -81,7 +81,9 @@ the double punctuation and orphaned periods that leaves behind.
 to, "in today's fast-paced world", plus the Instagram block: "stop scrolling",
 "in today's video", "follow for more", "tag someone who needs this", "the
 algorithm loves", "run don't walk". Each swapped for a plain word or deleted,
-with capitalisation preserved and URLs left untouched.
+with capitalisation preserved and URLs, email addresses and @mentions left
+untouched. URLs without a protocol, such as `example.com/guide`, are protected
+too. Numeric decimal points such as `.5` must retain their value.
 
 ## What does NOT get fixed automatically
 
@@ -103,7 +105,7 @@ PASS, and it is the part a script cannot do.
 
 ## The five checks
 
-`detect.py` scores five signals 0-100, higher is more human:
+`detect.py` scores assessable signals 0-100, higher is more human:
 
 | check | what it measures | machine looks like |
 | --- | --- | --- |
@@ -113,9 +115,18 @@ PASS, and it is the part a script cannot do.
 | FINGERPRINT | invisible chars, em dashes, curly quotes per 1k chars | typographically perfect |
 | VOICE | contractions, person, structural tells | no contractions, staged reveals |
 
-The verdict weights the mean at 60% and the **weakest single check** at 40%,
-because one signal is enough. PASS needs an overall of 70+ with no check
-below 55.
+When all five checks have enough text, the verdict weights the mean at 60%
+and the **weakest single check** at 40%. PASS needs an overall of 70+ with no
+check below 55.
+
+If any check lacks enough text, its score is **N/A** and the overall verdict
+is **INSUFFICIENT**. The JSON uses `null` for that check's `score` and for
+`human_score`; it does not invent a 50-point score. Comparing such a draft
+with another draft produces no numeric score delta. This is a completed
+check with no overall judgment, not a failure or a PASS. Inspect any specific
+issues still reported, then stop. Preserve the requested length, especially
+the 1–3 sentences of a comment; never add sentences or repeat rewrites just
+to obtain a score.
 
 ## Say this honestly
 
@@ -132,7 +143,10 @@ do not tell a user their text is undetectable.
 1. `humanize.py draft.txt -o clean.txt --report`
 2. Read the structural flags. Rewrite those lines yourself.
 3. `detect.py draft.txt clean.txt` to show the before and after.
-4. If the verdict is not PASS, fix the weakest check named in the output and go
-   again. Two rounds is normal. Five means the draft was written by formula,
-   and the fix is a different draft, not more passes.
-5. Show the user the cleaned text and the score. Never the score alone.
+4. If the verdict is INSUFFICIENT, finish the check after reviewing concrete
+   issues. Keep short comments at 1–3 sentences and stop the rewrite loop.
+   For REVIEW or FLAGGED, fix the weakest assessable check and re-run only
+   after a meaningful change; do not invent facts or enlarge the requested
+   format to chase PASS.
+5. Show the user the cleaned text and the score, or the INSUFFICIENT explanation
+   when no overall score is available. Never the score alone.

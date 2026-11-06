@@ -131,6 +131,31 @@ def latin_syllables(word):
 
 _NUM_TOKEN = re.compile(r"([$₩])?\s?(\d[\d,]*(?:\.\d+)?)\s?([%KkMm](?![A-Za-z]))?")
 _LATIN_TOKEN = re.compile(r"[A-Za-z]+")
+_NATIVE_COUNTER = re.compile(
+    r"[ \t]*(?:~[ \t]*\d[\d,]*(?:\.\d+)?[ \t]*)?"
+    r"(시간|가지|마리|군데|개|명|번|살|시|줄|장|달|권|곳|편|통|건|잔|판)"
+    r"(?=$|[^가-힣]|[은는이가을를의에로만도와과나요]|으로|보다|처럼|한테|하고|부터|까지|마다|씩|짜리|밖에|라도|쯤|뿐)")
+_NATIVE_ONES = ("", "한", "두", "세", "네", "다섯", "여섯", "일곱", "여덟", "아홉")
+_NATIVE_TENS = ("", "열", "스물", "서른", "마흔", "쉰", "예순", "일흔", "여든", "아흔")
+
+
+def _read_count(figure, following):
+    """Native readings for ordinary 1–99 counts; other figures stay Sino-Korean.
+
+    A trailing unit also applies to the first number in a range (5~7개).
+    Hours above 12 use the 24-hour clock reading. This is a counter heuristic,
+    not a parser that distinguishes every numbered label from a count.
+    """
+    if not re.fullmatch(r"[1-9]\d?", figure):
+        return None
+    counter = _NATIVE_COUNTER.match(following)
+    n = int(figure)
+    if not counter or (counter.group(1) == "시" and n > 12):
+        return None
+    if n == 20:
+        return "스무"
+    tens, ones = divmod(n, 10)
+    return _NATIVE_TENS[tens] + _NATIVE_ONES[ones]
 
 
 def spoken_syllables(text):
@@ -147,7 +172,12 @@ def spoken_syllables(text):
             value = str(int(float(figure.replace(",", "")) * 1000))
         elif suffix and suffix in "Mm":
             value = str(int(float(figure.replace(",", "")) * 1000000))
-        said = read_number(value)
+        said = None
+        ordinal = m.start(2) > 0 and text[m.start(2) - 1] == "제"
+        if not cur and not suffix and not ordinal:
+            said = _read_count(figure, text[m.end(2):])
+        if said is None:
+            said = read_number(value)
         n = len(said)
         if cur:
             n += sym.get(cur, 1)
@@ -166,7 +196,10 @@ def spoken_syllables(text):
     parts["hangul"] = len(HANGUL_RE.findall(work))
     for ch in ("&", "+"):
         parts["symbol"] += work.count(ch) * sym[ch]
-    parts["symbol"] += len(re.findall(r"(?<=\S)~(?=\S)", work)) * sym["~"]
+    # Keep compact ranges; allow spaces only between numeric endpoints, so
+    # an expressive "안녕하세요~ 다음 문장" or a line break adds no speech.
+    parts["symbol"] += len(re.findall(
+        r"(?<=\S)~(?=\S)|(?<=\d)[ \t]*~[ \t]*(?=\d)", text)) * sym["~"]
     return sum(parts.values()), parts
 
 

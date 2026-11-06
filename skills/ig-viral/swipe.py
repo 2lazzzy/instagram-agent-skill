@@ -16,7 +16,8 @@ with a header line naming the columns:
     @someone  48000       11000    412000   nobody tells you your first 30 flop
 
 `median` is that account's typical recent views and is the better baseline.
-If you only have `followers`, leave median out and the script says so.
+Rows without a positive recent median stay in a separate reference list;
+their views / followers ratio never enters the outlier ranking or analysis.
 `hook` is the first line of the reel, spoken or on screen, in their words.
 
 Usage
@@ -40,6 +41,7 @@ import os
 import re
 import statistics
 import sys
+from decimal import Decimal
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOOKS = os.path.join(HERE, "..", "ig-reel", "hooks.json")
@@ -65,7 +67,10 @@ def _pad(text, width):
         return f"{text:<{width}}"
     return ig_text.pad_width(ig_text.cut_width(text, width), width)
 HOOKS_KO = os.path.join(HERE, "..", "ig-reel", "locales", "ko-KR", "hooks.json")
-KO_UNITS = {"천": 1000, "만": 10000, "억": 100000000}
+COUNT_UNITS = {"k": 1000, "m": 1000000, "b": 1000000000,
+               "천": 1000, "만": 10000, "억": 100000000}
+COUNT_RE = re.compile(r"([0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)(\.[0-9]+)?\s*([kmb천만억])?",
+                      re.IGNORECASE)
 
 
 def load_formulas(path):
@@ -89,39 +94,60 @@ def classify(hook, formulas):
 
 
 def parse_count(cell):
-    """'412,000' -> 412000 (as before). Korean screen counts too:
-    '41.2만' -> 412000, '1.5천' -> 1500, '3억' -> 300000000."""
-    cell = cell or ""
-    m = re.search(r"(\d[\d,]*(?:\.\d+)?)\s*([천만억])", cell)
-    if m:
-        return int(round(float(m.group(1).replace(",", "")) * KO_UNITS[m.group(2)]))
-    digits = re.sub(r"[^\d]", "", cell)
-    return int(digits) if digits else None
+    """Read complete non-negative counts, including K/M/B and 천/만/억.
+
+    Blank cells are missing; malformed or fractional counts raise ValueError.
+    Never turn unrecognized input into a plausible count by stripping text.
+    """
+    if cell is None:
+        return None
+    if not isinstance(cell, str):
+        raise ValueError("expected a count written as text")
+    cell = cell.strip()
+    if not cell:
+        return None
+    match = COUNT_RE.fullmatch(cell)
+    if not match:
+        raise ValueError("expected a non-negative count, optionally with K/M/B or 천/만/억")
+    number, fraction, unit = match.groups()
+    numerator, denominator = Decimal(number.replace(",", "") + (fraction or "")).as_integer_ratio()
+    count, remainder = divmod(numerator * COUNT_UNITS.get((unit or "").lower(), 1), denominator)
+    if remainder:
+        raise ValueError("count must resolve to a whole number")
+    return count
 
 
-def read_rows(path):
+def read_rows(path, forced=None):
     raw = sys.stdin.read() if path == "-" else open(path, encoding="utf-8").read()
-    lines = [l for l in raw.splitlines() if l.strip() and not l.lstrip().startswith("#")]
+    lines = [(i, line) for i, line in enumerate(raw.splitlines(), 1)
+             if line.strip() and not line.lstrip().startswith("#")]
     if not lines:
         return []
-    head = [c.strip().lower() for c in lines[0].split("\t")]
+    head = [c.strip().lower() for c in lines[0][1].split("\t")]
     if "views" in head and "hook" in head:
         cols, body = head, lines[1:]
     else:
         cols, body = ["account", "followers", "views", "hook"], lines
     rows = []
-    for line in body:
+    for line_number, line in body:
         cells = line.split("\t")
         if len(cells) < len(cols):
             cells += [""] * (len(cols) - len(cells))
         r = dict(zip(cols, [c.strip() for c in cells]))
         try:
-            r["views"] = parse_count(r.get("views", "")) or 0
-        except ValueError:
+            for k in ("views", "followers", "median"):
+                r[k] = parse_count(r.get(k, ""))
+                if k == "views" and r[k] is None:
+                    raise ValueError("required view count is missing")
+        except ValueError as exc:
+            if row_locale(r.get("hook", ""), forced) == "ko-KR":
+                print(f"{line_number}행 제외: {k} 값 {r.get(k)!r}의 숫자 형식이 잘못되었습니다. "
+                      "0 이상의 정수 또는 K/M/B 또는 천/만/억 표기를 확인하세요.", file=sys.stderr)
+            else:
+                print(f"skipping line {line_number}: invalid {k} {r.get(k)!r}: {exc}",
+                      file=sys.stderr)
             continue
-        for k in ("followers", "median"):
-            r[k] = parse_count(r.get(k, "") or "")
-        if r["views"] and r.get("hook"):
+        if r.get("hook"):
             rows.append(r)
     return rows
 
@@ -136,13 +162,14 @@ def row_locale(hook, forced):
 
 
 def analyse(rows, formulas, formulas_by_locale=None, forced=None):
-    used_median = any(r.get("median") for r in rows)
     for r in rows:
         loc = row_locale(r["hook"], forced)
         r["locale"] = loc
-        base = r.get("median") or r.get("followers") or 0
+        base = r.get("median") if (r.get("median") or 0) > 0 else None
         r["baseline"] = base
         r["outlier"] = round(r["views"] / base, 2) if base else None
+        followers = r.get("followers") or 0
+        r["views_per_follower"] = round(r["views"] / followers, 2) if followers > 0 else None
         use = (formulas_by_locale or {}).get(loc, formulas) if loc != "en-US" else formulas
         r["formula_id"], r["formula"] = classify(r["hook"], use)
         if loc == "ko-KR":
@@ -154,7 +181,9 @@ def analyse(rows, formulas, formulas_by_locale=None, forced=None):
             r["hook_score"], r["hook_verdict"] = round(overall, 1), verdict
         else:
             r["hook_score"], r["hook_verdict"] = None, None
-    ranked = sorted(rows, key=lambda r: -(r["outlier"] or 0))
+    ranked = sorted((r for r in rows if r["baseline"] is not None),
+                    key=lambda r: -(r["views"] / r["baseline"]))
+    references = [r for r in rows if r["baseline"] is None]
     third = max(1, len(ranked) // 3)
     top, bottom = ranked[:third], ranked[-third:]
 
@@ -165,13 +194,17 @@ def analyse(rows, formulas, formulas_by_locale=None, forced=None):
     counts = {}
     for r in top:
         counts[r["formula"]] = counts.get(r["formula"], 0) + 1
-    locales = sorted({r["locale"] for r in ranked})
+    locales = sorted({r["locale"] for r in rows})
     return {
         "locale": locales[0] if len(locales) == 1 else "mixed",
-        "baseline": "account median" if used_median else "follower count",
-        "n": len(ranked),
-        "accounts": len({r.get("account", "") for r in ranked}),
+        "baseline": "account median",
+        "n": len(rows),
+        "accounts": len({r.get("account", "") for r in rows}),
+        "ranked_n": len(ranked),
+        "ranked_accounts": len({r.get("account", "") for r in ranked}),
+        "reference_n": len(references),
         "reels": ranked,
+        "references": references,
         "top_formulas": sorted(counts.items(), key=lambda kv: -kv[1]),
         "top_hook_score": med(top, "hook_score"),
         "bottom_hook_score": med(bottom, "hook_score"),
@@ -181,13 +214,29 @@ def analyse(rows, formulas, formulas_by_locale=None, forced=None):
     }
 
 
+def render_references(a, out, locale="en-US"):
+    if not a["references"]:
+        return
+    ko = locale == "ko-KR"
+    print(f"\n참고 목록 ({a['reference_n']}개) | 최근 중앙값 없음; 순위와 분석에서 제외"
+          if ko else f"\nREFERENCE ONLY ({a['reference_n']}) — no recent median; excluded from ranking and analysis",
+          file=out)
+    for r in a["references"]:
+        ratio = f"{r['views_per_follower']:.2f}" if r["views_per_follower"] is not None else ("계산 불가" if ko else "unavailable")
+        label = "조회수 / 팔로워 수" if ko else "views / followers"
+        print(f"  {r.get('account', '')}  {'조회수' if ko else 'views'} {r['views']:,}  "
+              f"{label}: {ratio}", file=out)
+        print(f"    \"{r['hook']}\"", file=out)
+
+
 def render(a, out=sys.stdout):
     head = (f"SWIPE FILE  ·  {a['n']} reels  ·  {a['accounts']} accounts  ·  "
             f"baseline: {a['baseline']}")
     print("\n" + head, file=out)
     print("=" * max(len(head), 78), file=out)
+    print(f"MAIN RANKING  ·  {a['ranked_n']} reels  ·  {a['ranked_accounts']} accounts", file=out)
     for r in a["reels"]:
-        mult = f"{r['outlier']:.1f}x" if r["outlier"] else "   ?"
+        mult = f"{r['outlier']:.1f}x"
         score = f"{r['hook_score']:.0f}" if r["hook_score"] is not None else " -"
         fid = f"#{r['formula_id']:<2}" if r["formula_id"] else "-  "
         print(f"  {mult:>7}  hook {score:>3}  {fid} {_pad(r['formula'][:22], 22)} "
@@ -195,16 +244,20 @@ def render(a, out=sys.stdout):
         print(f"           \"{r['hook'][:96]}\"", file=out)
     print("-" * max(len(head), 78), file=out)
     print("WHAT IS WORKING IN THIS BATCH", file=out)
+    if not a["ranked_n"]:
+        print("  No ranked reels. Collect recent account medians before comparing performance.", file=out)
     if a["top_formulas"]:
         print("  top third by outlier:  "
               + ", ".join(f"{n} x{c}" for n, c in a["top_formulas"][:4]), file=out)
     if a["top_hook_score"] is not None:
         print(f"  median hook score:     top {a['top_hook_score']:.0f}  "
               f"vs bottom {a['bottom_hook_score']:.0f}", file=out)
-    print(f"  median hook length:    top {a['top_words']} words  "
-          f"vs bottom {a['bottom_words']} words", file=out)
-    print(f"  unclassified:          {a['unclassified']} of {a['n']}. Read those by hand, "
-          "they are where a formula you do not have yet is hiding.", file=out)
+    if a["ranked_n"]:
+        print(f"  median hook length:    top {a['top_words']} words  "
+              f"vs bottom {a['bottom_words']} words", file=out)
+        print(f"  unclassified:          {a['unclassified']} of {a['ranked_n']} ranked reels. Read those by hand, "
+              "they are where a formula you do not have yet is hiding.", file=out)
+    render_references(a, out)
     print("\n  A hand-collected batch is evidence, not proof. Twelve reels shows you "
           "nothing;\n  forty across six accounts shows you something. Collect more before "
           "you believe it.\n", file=out)
@@ -212,11 +265,12 @@ def render(a, out=sys.stdout):
 
 def render_ko(a, out=sys.stdout):
     head = (f"스와이프 파일  |  릴스 {a['n']}개  |  계정 {a['accounts']}개  |  "
-            f"기준: {'계정 중앙값' if a['baseline'] == 'account median' else '팔로워 수'}")
+            "기준: 계정 중앙값")
     print("\n" + head, file=out)
     print("=" * 78, file=out)
+    print(f"주 순위  |  릴스 {a['ranked_n']}개  |  계정 {a['ranked_accounts']}개", file=out)
     for r in a["reels"]:
-        mult = f"{r['outlier']:.1f}x" if r["outlier"] else "   ?"
+        mult = f"{r['outlier']:.1f}x"
         score = f"{r['hook_score']:.0f}" if r["hook_score"] is not None else " -"
         fid = f"#{r['formula_id']:<2}" if r["formula_id"] else "-  "
         name = r["formula"] if r["formula"] != "unclassified" else "미분류"
@@ -225,6 +279,8 @@ def render_ko(a, out=sys.stdout):
         print(f"           \"{r['hook'][:60]}\"", file=out)
     print("-" * 78, file=out)
     print("이번 묶음에서 통하는 것", file=out)
+    if not a["ranked_n"]:
+        print("  순위에 포함할 릴스가 없습니다. 성과를 비교하려면 계정의 최근 조회수 중앙값을 수집하세요.", file=out)
     if a["top_formulas"]:
         print("  배수 상위 1/3:      "
               + ", ".join(f"{('미분류' if n == 'unclassified' else n)} x{c}"
@@ -232,24 +288,60 @@ def render_ko(a, out=sys.stdout):
     if a["top_hook_score"] is not None:
         print(f"  훅 점수 중앙값:     상위 {a['top_hook_score']:.0f}  "
               f"vs 하위 {a['bottom_hook_score']:.0f}", file=out)
-    print(f"  훅 길이 중앙값:     상위 {a['top_words']}어절  vs 하위 {a['bottom_words']}어절", file=out)
-    print(f"  미분류:             {a['n']}개 중 {a['unclassified']}개. 직접 읽어 보세요. "
-          "아직 목록에 없는 공식이 거기 숨어 있습니다.", file=out)
+    if a["ranked_n"]:
+        print(f"  훅 길이 중앙값:     상위 {a['top_words']}어절  vs 하위 {a['bottom_words']}어절", file=out)
+        print(f"  미분류:             순위에 포함된 {a['ranked_n']}개 중 {a['unclassified']}개. 직접 읽어 보세요. "
+              "아직 목록에 없는 공식이 거기 숨어 있습니다.", file=out)
+    render_references(a, out, "ko-KR")
     print("\n  손으로 모은 묶음은 증거이지 증명이 아닙니다. 12개로는 아무것도 말할 수 없고,"
           "\n  계정 6개에 걸친 40개쯤은 돼야 뭔가 보입니다. 믿기 전에 더 모으세요."
           "\n  훅 점수는 텍스트 휴리스틱이지 조회수 예측이 아닙니다.\n", file=out)
 
 
-def to_markdown(a):
-    lines = ["# Swipe file", "",
-             f"{a['n']} reels across {a['accounts']} accounts. "
-             f"Ranked by multiple over {a['baseline']}.", ""]
+def to_markdown(a, locale=None):
+    ko = (locale or report_locale(a, None)) == "ko-KR"
+    lines = ["# 스와이프 파일" if ko else "# Swipe file", "",
+             (f"릴스 {a['n']}개 | 계정 {a['accounts']}개. 계정의 최근 조회수 중앙값 대비 배수로 순위를 매깁니다."
+              if ko else f"{a['n']} reels across {a['accounts']} accounts. Ranked by multiple over account median."),
+             "", (f"## 주 순위 | 릴스 {a['ranked_n']}개 | 계정 {a['ranked_accounts']}개"
+                  if ko else f"## MAIN RANKING — {a['ranked_n']} reels across {a['ranked_accounts']} accounts"), ""]
+    if not a["ranked_n"]:
+        lines += [("순위에 포함할 릴스가 없습니다. 성과를 비교하려면 계정의 최근 조회수 중앙값을 수집하세요."
+                   if ko else "No ranked reels. Collect recent account medians before comparing performance."), ""]
     for r in a["reels"]:
-        mult = f"{r['outlier']:.1f}x" if r["outlier"] else "?"
-        lines += [f"## {mult}  {r['formula']}  ({r.get('account', '')})",
-                  f"- views: {r['views']:,}  baseline: {r['baseline']:,}",
-                  f"- hook score: {r['hook_score']}  words: {r['words']}",
-                  f"- hook: \"{r['hook']}\"", ""]
+        mult = f"{r['outlier']:.1f}x"
+        name = "미분류" if ko and r["formula"] == "unclassified" else r["formula"]
+        score = r["hook_score"] if r["hook_score"] is not None else ("없음" if ko else "unavailable")
+        lines += [f"### {mult}  {name}  ({r.get('account', '')})",
+                  (f"- 조회수: {r['views']:,}  최근 중앙값: {r['baseline']:,}" if ko
+                   else f"- views: {r['views']:,}  recent median: {r['baseline']:,}"),
+                  (f"- 훅 점수: {score}  길이: {r['words']}어절" if ko
+                   else f"- hook score: {score}  words: {r['words']}"),
+                  f"- {'훅' if ko else 'hook'}: \"{r['hook']}\"", ""]
+    if a["ranked_n"]:
+        formulas = ", ".join(f"{('미분류' if ko and name == 'unclassified' else name)} x{count}"
+                             for name, count in a["top_formulas"][:4])
+        lines += ["## 이번 묶음에서 통하는 것" if ko else "## WHAT IS WORKING IN THIS BATCH", "",
+                  (f"- 배수 상위 1/3 공식: {formulas}" if ko else f"- top third by outlier: {formulas}"),
+                  (f"- 훅 길이 중앙값: 상위 {a['top_words']}어절 / 하위 {a['bottom_words']}어절" if ko
+                   else f"- median hook length: top {a['top_words']} words / bottom {a['bottom_words']} words"),
+                  (f"- 미분류: 순위에 포함된 {a['ranked_n']}개 중 {a['unclassified']}개" if ko
+                   else f"- unclassified: {a['unclassified']} of {a['ranked_n']} ranked reels")]
+        if a["top_hook_score"] is not None:
+            lines += [(f"- 훅 점수 중앙값: 상위 {a['top_hook_score']} / 하위 {a['bottom_hook_score']}" if ko
+                       else f"- median hook score: top {a['top_hook_score']} / bottom {a['bottom_hook_score']}")]
+        lines += [""]
+    if a["references"]:
+        lines += [(f"## 참고 목록 | {a['reference_n']}개" if ko
+                   else f"## REFERENCE ONLY — {a['reference_n']} reels"), "",
+                  ("최근 중앙값이 없어 순위와 모든 상위, 하위, 공식 분석에서 제외했습니다. 조회수 / 팔로워 수는 참고용 비율입니다."
+                   if ko else "No recent median: excluded from ranking and all top/bottom/formula analysis. Views / followers is a reference ratio only."), ""]
+        for r in a["references"]:
+            ratio = f"{r['views_per_follower']:.2f}" if r["views_per_follower"] is not None else ("계산 불가" if ko else "unavailable")
+            lines += [f"### {r.get('account', '')}",
+                      f"- {'조회수' if ko else 'views'}: {r['views']:,}",
+                      f"- {'조회수 / 팔로워 수' if ko else 'views / followers'}: {ratio}",
+                      f"- {'훅' if ko else 'hook'}: \"{r['hook']}\"", ""]
     return "\n".join(lines) + "\n"
 
 
@@ -282,30 +374,37 @@ def main():
             sys.exit(2)
         forced = ig_locale.resolve_or_exit(args.locale, "").locale
 
-    rows = read_rows(args.input)
+    rows = read_rows(args.input, forced)
     if not rows:
-        print("no usable rows. Need a tab-separated file with at least views and hook.",
-              file=sys.stderr)
+        print("유효한 행이 없습니다. views와 hook을 포함한 탭 구분 파일이 필요합니다."
+              if row_locale("", forced) == "ko-KR" else
+              "no usable rows. Need a tab-separated file with at least views and hook.", file=sys.stderr)
         sys.exit(2)
     formulas = load_formulas(args.hooks)
     ko_formulas = load_formulas(HOOKS_KO)
     a = analyse(rows, formulas, {"ko-KR": ko_formulas}, forced)
+    locale = report_locale(a, forced)
     if not formulas:
-        print("note: hooks.json not found, formulas not named. Pass --hooks.", file=sys.stderr)
+        print("안내: hooks.json이 없어 공식을 분류할 수 없습니다. --hooks로 경로를 지정하세요."
+              if locale == "ko-KR" else
+              "note: hooks.json not found, formulas not named. Pass --hooks.", file=sys.stderr)
     if score_hook is None:
-        print("note: hookscore.py not importable, hook scores skipped.", file=sys.stderr)
+        print("안내: hookscore.py를 불러올 수 없어 훅 점수를 생략했습니다."
+              if locale == "ko-KR" else
+              "note: hookscore.py not importable, hook scores skipped.", file=sys.stderr)
 
     if args.json:
         print(json.dumps(a, indent=2, ensure_ascii=False))
-    elif report_locale(a, forced) == "ko-KR":
+    elif locale == "ko-KR":
         render_ko(a)
     else:
         render(a)
     if args.out:
         path = os.path.expanduser(args.out)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        open(path, "w", encoding="utf-8").write(to_markdown(a))
-        print(f"wrote {path}", file=sys.stderr)
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(to_markdown(a, locale))
+        print(f"저장: {path}" if locale == "ko-KR" else f"wrote {path}", file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -33,6 +33,44 @@ class Syllables(unittest.TestCase):
         self.assertEqual(ig_ko.spoken_syllables("$20")[0], 2 + 2)   # 이십 달러
         self.assertEqual(ig_ko.spoken_syllables("10K")[0], 1)       # 만
 
+    def test_native_numbers_follow_counting_units(self):
+        cases = {
+            "5개": 3, "6 명": 3, "7번": 3, "8살": 3, "9시": 3,
+            "5시간": 4, "5가지": 4, "5마리": 4, "5개만": 4,
+            "5개나": 4, "5명뿐": 4, "5시간쯤": 5, "5개라도": 5,
+            "5명으로": 5, "5명보다": 5, "5명처럼": 5, "5명한테": 5, "5명하고": 5,
+            "11개": 3, "20개": 3, "21개": 4, "55개": 4, "99개": 5,
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(ig_ko.spoken_syllables(text)[0], expected)
+
+    def test_non_counting_numbers_keep_their_existing_reading(self):
+        cases = {
+            "5원": 2, "5분": 2, "5초": 2, "5개월": 3, "5년": 2,
+            "13시": 3, "0개": 2, "100개": 2, "3.5개": 4, "05개": 3,
+            "$5": 3, "5K개": 3, "5시리즈": 4, "제5번": 3,
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(ig_ko.spoken_syllables(text)[0], expected)
+
+    def test_range_symbols_survive_number_expansion(self):
+        for text, expected in (("3~5분", 5), ("3 ~ 5분", 5), ("3\t~\t5분", 5),
+                               ("5~7개", 7), ("5 ~ 7개", 7), ("가~나", 4)):
+            with self.subTest(text=text):
+                total, parts = ig_ko.spoken_syllables(text)
+                self.assertEqual(total, expected)
+                self.assertEqual(parts["symbol"], 2)
+        self.assertEqual(ig_ko.spoken_syllables("좋아요~")[0], 3)
+
+    def test_expression_tildes_and_line_breaks_are_not_spoken_ranges(self):
+        self.assertEqual(ig_ko.spoken_syllables("안녕하세요~ 만나서 정말 반가워요~")[0], 14)
+        for text in ("3 ~\n 5분", "3\n~ 5분", "3~\n5분"):
+            with self.subTest(text=text):
+                self.assertEqual(ig_ko.spoken_syllables(text)[1]["symbol"], 0)
+        self.assertEqual(ig_ko.spoken_syllables("5\n~7개")[1]["number"], 3)
+
     def test_latin_estimates(self):
         exact = {"AI": 4, "GPT": 3, "API": 5, "Notion": 2, "Claude": 3, "ChatGPT": 4,
                  "Slack": 2, "Excel": 2}

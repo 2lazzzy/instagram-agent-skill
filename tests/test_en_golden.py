@@ -1,4 +1,4 @@
-"""English output must stay exactly what v1.0 printed (see golden_cases.py)."""
+"""English output must match reviewed baselines (see golden_cases.py)."""
 
 import json
 import os

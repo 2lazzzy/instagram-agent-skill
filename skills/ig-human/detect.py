@@ -12,7 +12,10 @@ It does not call their APIs and it cannot promise their verdict. It catches
 the things they all key on, which is why fixing them tends to move their
 numbers too - but the only honest claim is the one on this line.
 
-Each check returns a HUMAN score from 0 to 100. Higher is better.
+Each assessable check returns a HUMAN score from 0 to 100. Higher is better.
+Checks without enough text return None. If any check is unavailable, the
+overall score is None and the verdict is INSUFFICIENT: the check is complete,
+and short comments should keep their requested length instead of chasing PASS.
 
 Usage
   python3 detect.py draft.txt
@@ -38,7 +41,7 @@ import os
 import re
 import statistics
 import sys
-import unicodedata
+from humanize import SENT_RE, invisible_count
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LEX = os.path.join(HERE, "slop.json")
@@ -48,7 +51,6 @@ try:                                     # shared locale code; optional for en-U
 except ImportError:                      # ig-human copied without ig-i18n
     ig_locale = None
 
-SENT_RE = re.compile(r"[^.!?\n]+[.!?]*")
 WORD_RE = re.compile(r"[A-Za-z']+")
 CONTRACTIONS = re.compile(r"\b\w+'(?:s|t|re|ve|ll|d|m)\b", re.IGNORECASE)
 PRONOUNS = re.compile(r"\b(i|me|my|mine|we|us|our|you|your)\b", re.IGNORECASE)
@@ -79,7 +81,7 @@ def check_burstiness(text):
     """Humans vary sentence length hard. Models write even."""
     lens = [len(s.split()) for s in sentences(text)]
     if len(lens) < 4:
-        return 50.0, "too short to judge"
+        return None, "fewer than 4 assessable sentences; cannot judge"
     mean = statistics.mean(lens)
     cv = statistics.pstdev(lens) / mean if mean else 0
     score = scale(cv, human=0.70, machine=0.22)
@@ -90,7 +92,7 @@ def check_specificity(text):
     """Numbers, names and concrete nouns. Slop is abstract."""
     w = words(text)
     if len(w) < 25:
-        return 50.0, "too short to judge"
+        return None, "fewer than 25 words; cannot judge"
     per100 = 100 / len(w)
     hits = len(NUMBERS.findall(text)) + len(set(PROPER.findall(text)))
     density = hits * per100
@@ -102,7 +104,7 @@ def check_slop(text, lex):
     """Stock vocabulary density against the lexicon."""
     w = words(text)
     if not w:
-        return 50.0, "empty"
+        return None, "no words to assess"
     hits, found = 0, []
     for entry in lex["words"] + lex["phrases"]:
         pattern = re.compile(r"\b" + re.escape(entry["find"]).replace(r"\ ", r"\s+") + r"\b",
@@ -121,7 +123,9 @@ def check_slop(text, lex):
 
 def check_fingerprint(text):
     """Characters a phone keyboard does not produce."""
-    invisible = sum(1 for c in text if unicodedata.category(c) == "Cf")
+    if not text.strip():
+        return None, "empty; cannot judge"
+    invisible = invisible_count(text)
     em = text.count("—")
     curly = sum(text.count(c) for c in "‘’“”")
     ellip = text.count("…")
@@ -138,7 +142,7 @@ def check_voice(text, lex):
     """Contractions, person, and the shapes models default to."""
     w = words(text)
     if len(w) < 25:
-        return 50.0, "too short to judge"
+        return None, "fewer than 25 words; cannot judge"
     per100 = 100 / len(w)
     contractions = len(CONTRACTIONS.findall(text)) * per100
     person = len(PRONOUNS.findall(text)) * per100
@@ -178,6 +182,8 @@ def run(text, lex):
     results["FINGERPRINT"] = check_fingerprint(text)
     results["VOICE"] = check_voice(text, lex)
     scores = [results[c][0] for c in CHECKS]
+    if any(s is None for s in scores):
+        return results, None, "INSUFFICIENT"
     # The weakest check drags the verdict: a detector only needs one signal.
     overall = statistics.mean(scores) * 0.6 + min(scores) * 0.4
     verdict = "PASS" if overall >= 70 and min(scores) >= 55 else (
@@ -186,6 +192,8 @@ def run(text, lex):
 
 
 def bar(score, width=24):
+    if score is None:
+        return " " * width
     filled = round(score / 100 * width)
     return "#" * filled + "." * (width - filled)
 
@@ -196,11 +204,16 @@ def render(results, overall, verdict, label=None, out=sys.stdout):
     print("=" * max(len(title), 62), file=out)
     for name in CHECKS:
         score, detail = results[name]
-        print(f"  {name:<13} {bar(score)} {score:5.1f}", file=out)
+        shown = "N/A" if score is None else f"{score:5.1f}"
+        print(f"  {name:<13} {bar(score)} {shown}", file=out)
         print(f"  {'':<13} {detail}", file=out)
     print("-" * 62, file=out)
-    print(f"  {'HUMAN SCORE':<13} {bar(overall)} {overall:5.1f}   {verdict}", file=out)
-    if verdict != "PASS":
+    shown = "N/A" if overall is None else f"{overall:5.1f}"
+    print(f"  {'HUMAN SCORE':<13} {bar(overall)} {shown}   {verdict}", file=out)
+    if verdict == "INSUFFICIENT":
+        print("\n  Check complete: too little text for an overall verdict. "
+              "Keep the requested length; do not expand or repeatedly rewrite for a score.", file=out)
+    elif verdict != "PASS":
         weakest = min(CHECKS, key=lambda c: results[c][0])
         print(f"\n  Weakest signal: {weakest}. Fix that first.", file=out)
     print("", file=out)
@@ -214,12 +227,17 @@ def render_ko(results, overall, verdict, label=None, out=sys.stdout):
     print("=" * 62, file=out)
     for name in CHECKS:
         score, detail = results[name]
-        print(f"  {ig_text.pad_width(human_ko.LABELS[name], 13)} {bar(score)} {score:5.1f}", file=out)
+        shown = "판단 불가" if score is None else f"{score:5.1f}"
+        print(f"  {ig_text.pad_width(human_ko.LABELS[name], 13)} {bar(score)} {shown}", file=out)
         print(f"  {'':<13} {detail}", file=out)
     print("-" * 62, file=out)
-    print(f"  {ig_text.pad_width('사람 점수', 13)} {bar(overall)} {overall:5.1f}   "
+    shown = "판단 불가" if overall is None else f"{overall:5.1f}"
+    print(f"  {ig_text.pad_width('사람 점수', 13)} {bar(overall)} {shown}   "
           f"{human_ko.VERDICTS[verdict]} ({verdict})", file=out)
-    if verdict != "PASS":
+    if verdict == "INSUFFICIENT":
+        print("\n  검사 완료: 분량이 부족해 전체 판정을 보류합니다. "
+              "요청한 길이를 유지하고, 점수를 위해 늘리거나 반복해서 고치지 마세요.", file=out)
+    elif verdict != "PASS":
         weakest = min(CHECKS, key=lambda c: results[c][0])
         print(f"\n  가장 약한 신호: {human_ko.LABELS[weakest]}. 이것부터 고치세요.", file=out)
     print("", file=out)
@@ -268,8 +286,9 @@ def main():
         results, overall, verdict = score(text, lex)
         payload.append({
             "source": name,
-            "checks": {k: {"score": round(v[0], 1), "detail": v[1]} for k, v in results.items()},
-            "human_score": round(overall, 1),
+            "checks": {k: {"score": round(v[0], 1) if v[0] is not None else None,
+                           "detail": v[1]} for k, v in results.items()},
+            "human_score": round(overall, 1) if overall is not None else None,
             "verdict": verdict,
             "locale": locale,
         })
@@ -284,11 +303,16 @@ def main():
         show(results, overall, verdict, label=os.path.basename(name) if args.compare else None)
     if args.compare:
         a, b = payload
-        delta = b["human_score"] - a["human_score"]
-        print(f"  {a['human_score']:.1f} {a['verdict']}  ->  "
-              f"{b['human_score']:.1f} {b['verdict']}   ({delta:+.1f})\n")
+        if a["human_score"] is None or b["human_score"] is None:
+            note = "점수 비교 불가: 판정 보류인 초안이 있습니다" if locale == "ko-KR" else (
+                "scores not comparable: at least one draft is INSUFFICIENT")
+            print(f"  {a['verdict']}  ->  {b['verdict']}   ({note})\n")
+        else:
+            delta = b["human_score"] - a["human_score"]
+            print(f"  {a['human_score']:.1f} {a['verdict']}  ->  "
+                  f"{b['human_score']:.1f} {b['verdict']}   ({delta:+.1f})\n")
 
-    sys.exit(0 if payload[-1]["verdict"] == "PASS" else 1)
+    sys.exit(0 if payload[-1]["verdict"] in ("PASS", "INSUFFICIENT") else 1)
 
 
 if __name__ == "__main__":

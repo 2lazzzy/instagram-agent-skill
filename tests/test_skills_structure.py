@@ -4,17 +4,21 @@ has its Korean resources."""
 import glob
 import json
 import os
+import re
+import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
 from helpers import ROOT, SKILLS, fx, run
 from golden_cases import GOLDEN
 
-SKILL_NAMES = ["ig-audit", "ig-caption", "ig-carousel", "ig-comment", "ig-dm", "ig-human",
-               "ig-plan", "ig-profile", "ig-reel", "ig-reply", "ig-repurpose", "ig-story",
-               "ig-viral"]
+ORIGINAL_SKILL_NAMES = ["ig-audit", "ig-caption", "ig-carousel", "ig-comment", "ig-dm",
+                        "ig-human", "ig-plan", "ig-profile", "ig-reel", "ig-reply",
+                        "ig-repurpose", "ig-story", "ig-viral"]
+SKILL_NAMES = sorted(ORIGINAL_SKILL_NAMES + ["ig-help"])
 V1 = "d03c56b"     # the last upstream commit before the i18n work
 
 
@@ -25,7 +29,7 @@ def frontmatter(path):
 
 
 class Layout(unittest.TestCase):
-    def test_thirteen_skills_and_a_library(self):
+    def test_fourteen_skills_and_a_library(self):
         found = sorted(os.path.basename(os.path.dirname(p))
                        for p in glob.glob(os.path.join(SKILLS, "*", "SKILL.md")))
         self.assertEqual(found, SKILL_NAMES)
@@ -76,23 +80,43 @@ class Layout(unittest.TestCase):
         self.assertIn("Jake Schincariol", open(os.path.join(ROOT, "LICENSE")).read())
         self.assertIn("Made by Jake Schincariol", open(os.path.join(ROOT, "README.md")).read())
 
+    def test_help_catalogs_cover_each_available_skill_once(self):
+        available = {os.path.basename(os.path.dirname(p))
+                     for p in glob.glob(os.path.join(SKILLS, "*", "SKILL.md"))}
+        for relative in ("SKILL.md", "locales/ko-KR/guide.md"):
+            path = os.path.join(SKILLS, "ig-help", relative)
+            with open(path, encoding="utf-8") as fh:
+                commands = re.findall(r"^\| `/([a-z0-9-]+)` \|", fh.read(), re.M)
+            self.assertCountEqual(commands, available, relative)
+
+    def test_help_reference_links_resolve(self):
+        path = os.path.join(SKILLS, "ig-help", "SKILL.md")
+        with open(path, encoding="utf-8") as fh:
+            links = re.findall(r"\]\(([^)]+\.md)\)", fh.read())
+        self.assertTrue(links)
+        for link in links:
+            self.assertTrue(os.path.isfile(os.path.join(os.path.dirname(path), link)), link)
+
 
 @unittest.skipUnless(shutil.which("git"), "git not available")
 class EnglishSkillTextKept(unittest.TestCase):
-    """Every line of each v1.0 SKILL.md is still there, in the same order.
-    The i18n work only inserted lines; it did not rewrite English guidance."""
+    """Keep original workflow sections and tool names while permitting corrected
+    instructions, such as ending an insufficient-text check without rewriting."""
 
-    def test_v1_lines_are_a_subsequence(self):
-        for name in SKILL_NAMES:
+    def test_original_workflow_sections_and_tools_are_kept(self):
+        for name in ORIGINAL_SKILL_NAMES:
             proc = subprocess.run(["git", "show", f"{V1}:skills/{name}/SKILL.md"], cwd=ROOT,
                                   capture_output=True, text=True)
             if proc.returncode != 0:
                 self.skipTest("v1.0 commit not in this checkout")
-            old = proc.stdout.splitlines()
-            new = open(os.path.join(SKILLS, name, "SKILL.md"), encoding="utf-8").read().splitlines()
-            it = iter(new)
-            missing = [l for l in old if not any(l == n for n in it)]
+            with open(os.path.join(SKILLS, name, "SKILL.md"), encoding="utf-8") as fh:
+                new = fh.read()
+            headings = re.findall(r"^#{1,6} .+$", proc.stdout, re.M)
+            it = iter(re.findall(r"^#{1,6} .+$", new, re.M))
+            missing = [heading for heading in headings if not any(heading == h for h in it)]
             self.assertEqual(missing, [], name)
+            old_tools = set(re.findall(r"\b[\w-]+\.py\b", proc.stdout))
+            self.assertTrue(old_tools <= set(re.findall(r"\b[\w-]+\.py\b", new)), name)
 
 
 class Install(unittest.TestCase):
@@ -100,14 +124,29 @@ class Install(unittest.TestCase):
     shared ig-i18n folder, and a skill copied alone must still work in English."""
 
     def test_documented_copy_brings_the_library(self):
-        with tempfile.TemporaryDirectory() as dest:
-            for path in glob.glob(os.path.join(SKILLS, "ig-*")):
-                shutil.copytree(path, os.path.join(dest, os.path.basename(path)))
-            self.assertTrue(os.path.exists(os.path.join(dest, "ig-i18n", "ig_locale.py")))
-            code, out, _ = run(os.path.join(dest, "ig-reel", "hookscore.py"),
-                               ["--hook", "회의록 정리, 이제 5분이면 끝납니다", "--locale", "ko-KR"])
-            self.assertEqual(code in (0, 1), True)
-            self.assertIn("훅 점수", out)
+        for doc in ("README.md", "README.ko.md"):
+            with open(os.path.join(ROOT, doc), encoding="utf-8") as fh:
+                block = next(b for b in re.findall(r"```bash\n(.*?)```", fh.read(), re.S)
+                             if "git clone " in b)
+            # The repository is already fetched. Exercise the remaining install
+            # instructions against a fresh profile directory, not the real home.
+            commands = "\n".join(line for line in block.splitlines()
+                                 if not line.startswith("git clone "))
+            with tempfile.TemporaryDirectory() as work:
+                os.symlink(ROOT, os.path.join(work, "instagram-agent-skill"))
+                commands = commands.replace("~/", shlex.quote(work) + "/")
+                proc = subprocess.run(["bash", "-e", "-c", commands], cwd=work,
+                                      capture_output=True, text=True)
+                self.assertEqual(proc.returncode, 0, doc + ": " + proc.stderr)
+                dest = os.path.join(work, ".claude", "skills")
+                self.assertTrue(os.path.exists(os.path.join(dest, "ig-i18n", "ig_locale.py")))
+                self.assertTrue(os.path.isfile(os.path.join(dest, "ig-help", "SKILL.md")))
+                self.assertTrue(os.path.isfile(os.path.join(
+                    dest, "ig-help", "locales", "ko-KR", "guide.md")))
+                code, out, _ = run(os.path.join(dest, "ig-reel", "hookscore.py"),
+                                   ["--hook", "회의록 정리, 이제 5분이면 끝납니다", "--locale", "ko-KR"])
+                self.assertIn(code, (0, 1))
+                self.assertIn("훅 점수", out)
 
     def test_single_skill_copied_alone_still_runs_english(self):
         cases = [("ig-reel", "hookscore.py", ["hooks.txt"], "hookscore_rank"),
@@ -127,6 +166,63 @@ class Install(unittest.TestCase):
                 code, _, err = run(os.path.join(dest, skill, script), argv + ["--locale", "ko-KR"])
                 self.assertEqual(code, 2, f"{skill}/{script} alone with ko-KR")
                 self.assertIn("ig-i18n", err)
+
+
+class IntegrationHarness(unittest.TestCase):
+    """Check the runner's success/failure handling without calling a model."""
+
+    def _run_case(self, case):
+        mock = r'''#!/usr/bin/env python3
+import json, os, sys
+case = os.environ["IG_INTEGRATION_CASE"]
+ko = "--locale ko-KR" in sys.argv[-1]
+if case in ("process_error", "error_text"):
+    print("휴리스틱 점수를 계산할 수 없습니다." if ko else
+          "Cannot run hookscore.py; no hook score was computed.")
+    sys.exit(7 if case == "process_error" else 0)
+locale = "ko-KR" if ko else "en-US"
+rows = [{"hook": ("회의록 정리 " if ko else "Organize meeting notes ") + str(i),
+         "locale": "en-US" if case == "wrong_locale" else locale,
+         "score": 80.0, "verdict": "STRONG",
+         "checks": {k: {"score": 80.0, "detail": "checked"} for k in
+                    ["LENGTH", "SPECIFICITY", "STAKES", "FRONTLOAD", "ADDRESS"]}}
+        for i in range(3)]
+if case == "invalid_score":
+    rows[0]["score"] = "not scored"
+output = ("\n".join(json.dumps(row, ensure_ascii=False) for row in rows)
+          if case == "multiple_documents" else json.dumps(rows, ensure_ascii=False))
+if case != "no_tool":
+    print(json.dumps({"type": "assistant", "message": {"content": [{
+        "type": "tool_use", "id": "score-1", "name": "Bash", "input": {
+            "command": "python3 /plugin/skills/ig-reel/hookscore.py hooks.txt --json --locale " + locale}}]}}))
+    print(json.dumps({"type": "user", "message": {"content": [{
+        "type": "tool_result", "tool_use_id": "score-1", "is_error": case == "tool_error",
+        "content": output}]}}))
+print(json.dumps({"type": "result", "subtype": "success", "is_error": False,
+                  "result": "휴리스틱 훅 점수입니다." if ko else "Hook scores are ready."}))
+'''
+        with tempfile.TemporaryDirectory() as work:
+            mock_path = os.path.join(work, "claude")
+            with open(mock_path, "w", encoding="utf-8") as fh:
+                fh.write(mock.replace("#!/usr/bin/env python3", "#!" + sys.executable, 1))
+            os.chmod(mock_path, 0o755)
+            env = dict(os.environ, PATH=work + os.pathsep + os.environ.get("PATH", ""),
+                       TMPDIR=work, IG_INTEGRATION_CASE=case)
+            return subprocess.run(["bash", os.path.join(ROOT, "tests/integration/claude_cli.sh")],
+                                  env=env, capture_output=True, text=True)
+
+    def test_failures_and_unscored_responses_do_not_pass(self):
+        for case in ("process_error", "error_text", "no_tool", "tool_error",
+                     "wrong_locale", "invalid_score"):
+            with self.subTest(case=case):
+                proc = self._run_case(case)
+                self.assertNotEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+    def test_successful_scoring_events_pass(self):
+        for case in ("success", "multiple_documents"):
+            with self.subTest(case=case):
+                proc = self._run_case(case)
+                self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
 
 
 if __name__ == "__main__":

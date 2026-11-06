@@ -80,6 +80,17 @@ class Classify(unittest.TestCase):
 
 
 class HookScore(unittest.TestCase):
+    def test_english_frontload_recognizes_names_after_the_first_word(self):
+        _, result, _ = run_json("ig-reel/hookscore.py", [
+            "--hook", "Use Notion to organize your daily notes", "--locale", "en-US"])
+        self.assertEqual(result["checks"]["FRONTLOAD"]["score"], 100)
+        self.assertEqual(result["score"], 55.4)
+        self.assertEqual(result["verdict"], "OK")
+        late = hookscore.check_frontload("Organize all the notes you take each day with Notion")
+        self.assertEqual(late[0], 40)
+        self.assertEqual(hookscore.check_frontload("Organize all the notes you take")[0], 30)
+        self.assertEqual(hookscore.check_frontload("Use notion to organize your notes")[0], 30)
+
     def test_greeting_and_preamble_are_dealbreakers(self):
         _, overall, verdict, flags = score("안녕하세요 여러분! 오늘은 업무 자동화에 대해 알아보겠습니다.")
         self.assertEqual(verdict, "WEAK")
@@ -148,6 +159,34 @@ class HookScore(unittest.TestCase):
 
 
 class Beats(unittest.TestCase):
+    def test_native_counter_digits_keep_the_spoken_hook_warning(self):
+        for script in ("5개 6개 7개 8개 9개", "다섯 개 여섯 개 일곱 개 여덟 개 아홉 개"):
+            with self.subTest(script=script):
+                _, a, _ = run_json("ig-reel/beats.py", ["-", "--locale", "ko-KR"], stdin=script)
+                self.assertEqual(a["total_syllables"], 15)
+                self.assertEqual(a["total_seconds"], 3.03)
+                self.assertTrue(any("3초" in f for f in a["beats"][0]["flags"]))
+
+    def test_native_count_with_particle_keeps_the_spoken_hook_warning(self):
+        for script in ("5명으로 시작해도 정말 충분해요", "다섯 명으로 시작해도 정말 충분해요"):
+            with self.subTest(script=script):
+                _, a, _ = run_json("ig-reel/beats.py", ["-", "--locale", "ko-KR"], stdin=script)
+                self.assertEqual(a["total_syllables"], 15)
+                self.assertEqual(a["total_seconds"], 3.03)
+                self.assertTrue(any("3초" in f for f in a["beats"][0]["flags"]))
+
+    def test_expression_tildes_do_not_create_a_hook_warning(self):
+        _, a, _ = run_json("ig-reel/beats.py", ["-", "--locale", "ko-KR"],
+                           stdin="안녕하세요~ 만나서 정말 반가워요~")
+        self.assertEqual(a["total_syllables"], 14)
+        self.assertEqual(a["total_seconds"], 2.85)
+        self.assertFalse(any("3초" in f for f in a["beats"][0]["flags"]))
+
+    def test_range_symbol_contributes_to_spoken_duration(self):
+        _, a, _ = run_json("ig-reel/beats.py", ["-", "--locale", "ko-KR"], stdin="3~5분")
+        self.assertEqual(a["total_syllables"], 5)  # 삼에서 오분
+        self.assertEqual(a["total_seconds"], 1.21)
+
     def test_timing_uses_syllables_and_pauses(self):
         _, a, _ = run_json("ig-reel/beats.py", [fx("script_ko.txt"), "--locale", "ko-KR"])
         self.assertEqual(a["locale"], "ko-KR")

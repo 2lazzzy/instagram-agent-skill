@@ -29,7 +29,7 @@ once, before anything else, in this order:
 4. The language the user wrote the request in.
 5. en-US.
 
-For en-US, follow this file exactly as written; nothing about English changed.
+For en-US, follow this file as written.
 For ko-KR, read `../ig-i18n/style-ko-KR.md` and `locales/ko-KR/guide.md` (both
 relative to this folder) before writing, and where they differ from the English
 examples below, they win. Every line of output is Korean, including labels and

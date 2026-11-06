@@ -1,10 +1,11 @@
 """
 English regression cases.
 
-Every case here was run against the original v1.0 scripts (before any i18n
-work) and its output was frozen in tests/golden/en/. The test suite re-runs the
-same commands and requires the same output, so the English behaviour cannot
-drift silently.
+Cases started with the original v1.0 output (before i18n). Baselines in
+tests/golden/en/ also include reviewed fixes for source preservation, scoring,
+insufficient text and median-only swipe rankings. The suite re-runs the same
+commands so behavior cannot drift silently. Inspect every changed baseline;
+do not regenerate snapshots to hide a failure.
 
 Regenerate only on purpose:  python3 tests/golden_cases.py --write
 """
@@ -75,8 +76,10 @@ def strip_locale(obj):
 def write():
     os.makedirs(GOLDEN, exist_ok=True)
     with tempfile.TemporaryDirectory() as cfg:
-        for name, script, argv, _ in CASES:
+        for name, script, argv, is_json in CASES:
             code, out, err = run_case(script, argv, cfg)
+            if is_json:
+                out = json.dumps(strip_locale(json.loads(out)), indent=2, ensure_ascii=False) + "\n"
             with open(os.path.join(GOLDEN, name + ".json"), "w", encoding="utf-8") as fh:
                 json.dump({"code": code, "stdout": out, "stderr": err}, fh,
                           ensure_ascii=False, indent=1)

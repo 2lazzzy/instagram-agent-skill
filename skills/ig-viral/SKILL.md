@@ -36,7 +36,8 @@ once, before anything else, in this order:
 4. The language the user wrote the request in.
 5. en-US.
 
-For en-US, follow this file exactly as written; nothing about English changed.
+For en-US, follow this file. Count validation and median-only ranking apply to
+both English and Korean reports.
 For ko-KR, read `../ig-i18n/style-ko-KR.md` and `locales/ko-KR/guide.md` (both
 relative to this folder) before writing, and where they differ from the English
 examples below, they win. Every line of output is Korean, including labels and
@@ -108,8 +109,12 @@ small enough to read.
 | length | seconds |
 | cta | what they asked for at the end |
 
-Median is the important one. Without it you are back to ranking by follower
-count, which is the thing this skill exists to stop.
+Median is required for the main ranking. A row without a positive recent
+median belongs in a separate **REFERENCE ONLY** list. Its views / followers
+ratio can supply context, but is never an outlier multiple and must not enter
+the top/bottom comparison or formula analysis. A zero median is also unusable
+as a denominator. Keep the original row and collect a recent median before
+promoting it into the ranking.
 
 **When Instagram will not show you enough:** the same hook grammar runs on
 YouTube Shorts, where view counts and transcripts are public and no login is
@@ -144,7 +149,30 @@ python3 swipe.py captured.tsv --out ~/.claude/instagram/swipe.md
 
 It computes the outlier multiple, names the hook formula using the same 26
 formulas `/ig-reel` writes from, scores each hook with `hookscore.py`, and
-prints what separates the top third from the bottom third.
+prints what separates the top third from the bottom third of **ranked rows
+only**. Reference rows are shown separately, in their original order. If every
+row is a reference, report the collected hooks and ask for recent medians;
+do not infer winning formulas or top/bottom performance.
+
+Counts may be plain numbers, comma-grouped numbers, or screen abbreviations:
+`41.2K` = 41,200, `1.2M` = 1,200,000, `1B` = 1,000,000,000;
+`41.2만`, `1.5천`, and `3억` also work. K/M/B are case-insensitive. A count must
+resolve to a non-negative whole number. Malformed, negative, fractional, or
+non-finite values are rejected, never stripped into a different number. The
+tool skips that row and reports its original line number and field on stderr.
+Blank optional followers/median fields remain valid; if all rows are unusable,
+the command exits with status 2.
+
+`--out swipe.md` writes in the current directory; nested and absolute paths
+also work. The Markdown file uses the same report language, ranking, and
+reference separation as the terminal report. `--json` keeps `n` and `accounts`
+as the total accepted sample; `ranked_n` and `ranked_accounts` describe `reels`,
+which contains only ranked rows. `references` and `reference_n` hold the rest.
+Reference rows have null `baseline` and `outlier`; `views_per_follower` is an
+explicit views / followers ratio, or null when followers are unavailable or
+zero. The summary fields (`top_formulas`, top/bottom scores and lengths, and
+`unclassified`) use only `reels`. With no ranked rows, formula counts are empty,
+top/bottom metrics are null, and `unclassified` is 0.
 
 ## Step 4: say what it means, carefully
 
@@ -164,6 +192,8 @@ Report three things and no more:
 Then state the sample size and the confidence in plain words. Forty reels
 across six accounts supports a claim. Twelve does not, and saying so is the
 difference between research and horoscopes.
+State the ranked sample size separately from reference rows, so missing
+baselines cannot inflate the evidence behind a claim.
 
 ## Step 5: turn it into something to shoot
 
