@@ -57,6 +57,7 @@ class Layout(unittest.TestCase):
     def test_korean_docs_avoid_middle_dot_and_dash(self):
         paths = glob.glob(os.path.join(SKILLS, "*", "locales", "ko-KR", "guide.md"))
         paths += [os.path.join(SKILLS, "ig-i18n", "style-ko-KR.md"),
+                  os.path.join(ROOT, "README.md"),
                   os.path.join(ROOT, "README.ko.md"), os.path.join(ROOT, "docs", "i18n.md"),
                   os.path.join(ROOT, "templates", "voice.ko-KR.md")]
         for p in paths:
@@ -78,7 +79,8 @@ class Layout(unittest.TestCase):
 
     def test_license_and_credit_kept(self):
         self.assertIn("Jake Schincariol", open(os.path.join(ROOT, "LICENSE")).read())
-        self.assertIn("Made by Jake Schincariol", open(os.path.join(ROOT, "README.md")).read())
+        self.assertIn("Jake Schincariol", open(os.path.join(ROOT, "README.md")).read())
+        self.assertIn("Made by Jake Schincariol", open(os.path.join(ROOT, "README.en.md")).read())
 
     def test_help_catalogs_cover_each_available_skill_once(self):
         available = {os.path.basename(os.path.dirname(p))
@@ -124,7 +126,7 @@ class Install(unittest.TestCase):
     shared ig-i18n folder, and a skill copied alone must still work in English."""
 
     def test_documented_copy_brings_the_library(self):
-        for doc in ("README.md", "README.ko.md"):
+        for doc in ("README.md", "README.en.md"):
             with open(os.path.join(ROOT, doc), encoding="utf-8") as fh:
                 block = next(b for b in re.findall(r"```bash\n(.*?)```", fh.read(), re.S)
                              if "git clone " in b)
